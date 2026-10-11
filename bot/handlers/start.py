@@ -14,6 +14,7 @@ def build_welcome_text(first_name: str | None) -> str:
         f"Salom, <b>{name}</b>! Men <b>Sarfim</b> — kirim-chiqimlaringizni hisoblab boraman.\n\n"
         "Xarajat yozing:  <code>taksi 30000</code>\n"
         "Kirim yozing:  <code>+5 mln oylik</code>\n"
+        "Kategoriyalar:  /kategoriyalar\n"
         "Hisobot:  /hisobot"
     )
 

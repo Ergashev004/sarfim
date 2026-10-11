@@ -34,8 +34,13 @@ def migrated_db(alembic_cfg: Config) -> str:
 
 
 @pytest.fixture
-async def session(migrated_db: str):
+async def sessionmaker(migrated_db: str):
     engine = make_engine(migrated_db)
-    async with make_sessionmaker(engine)() as s:
-        yield s
+    yield make_sessionmaker(engine)
     await engine.dispose()
+
+
+@pytest.fixture
+async def session(sessionmaker):
+    async with sessionmaker() as s:
+        yield s

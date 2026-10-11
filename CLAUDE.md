@@ -26,6 +26,11 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - `bot/services/` — Telegram'ga bog'liq bo'lmagan mantiq (parser, kategoriya, hisobot). Testlarning asosiy qismi shu yerda.
 - `bot/handlers/`, `bot/keyboards/` — faqat Telegram qatlami, ichida biznes mantiq bo'lmaydi.
 - `bot/db/` — SQLAlchemy 2 (async) + aiosqlite, migratsiyalar Alembic bilan.
+  So'rovlar faqat `bot/db/repo.py` da; yozuvga tegadiganlari `user_id` bo'yicha ham filtrlanadi.
+- Yangi buyruq qo'shilsa `bot/commands.py: BOT_COMMANDS` ga ham yoziladi ("/" menyusi; `test_commands` tekshiradi).
+- `bot/middlewares/db.py` — har update uchun sessiya + `db_user` (foydalanuvchi bazaga yoziladi).
+- Kiritish: `services/entry.py: parse_entry()` → `Entry` (READY / NEED_CATEGORY / NEED_AMOUNT / BAD_*).
+  Kategoriyasi noaniq yozuv tanlanguncha bazaga yozilmaydi (FSM xotirada, restartda yo'qoladi).
 - Sozlamalar `.env` dan (`bot/config.py`, pydantic-settings). Token va kalitlar kodga yozilmaydi.
 
 ## Qat'iy qoidalar
@@ -64,10 +69,9 @@ created_at, source keyword/ai/manual; indeks (user_id, occurred_on)), `user_keyw
 - [x] 0 — skelet, /start, CI
 - [x] 1a — summa va sana parserlari (`bot/services/parser.py`, 73 test)
 - [x] 1b — baza modellari, Alembic, standart kategoriyalar (`bot/db/`, `bot/services/categories.py`)
-- [ ] 2 — kiritish oqimi (kalit so'zlar, karta, bekor qilish, kirim, qoldiq) + butun pipeline testlari
+- [x] 2 — kiritish oqimi (kalit so'zlar, karta, bekor qilish, kirim, qoldiq) + butun pipeline testlari
 - [ ] 3 — AI, user_keywords, ai_requests, shaxsiy kategoriyalar
 - [ ] 4 — hisobotlar (SQL + matplotlib), /oxirgi
 - [ ] 5 — shaxsiy foydalanish, README, demo
 
-Ma'lum cheklov: matnda ikkita sana bo'lsa (`5.10 kecha`) "kecha" ustun turadi, `5.10` summa bo'lib qoladi —
-2-bosqichda bunday holatda summa so'raladigan qilinadi.
+Matnda ikkita sana bo'lsa (`5.10 kecha`) parser "kecha"ni oladi, `parse_entry` esa summani alohida so'raydi.
