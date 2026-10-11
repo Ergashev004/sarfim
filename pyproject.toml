@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.31.0",
+    "aiosqlite>=0.22.1",
+    "alembic>=1.20.0",
     "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.1.4",
 ]
 
 [tool.ruff]
@@ -28,3 +31,6 @@ dev = [
     "ruff>=0.17.0",
     "time-machine>=3.5.1",
 ]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]  # loyihadagi alembic/ papkasi paket bilan adashtirilmasin

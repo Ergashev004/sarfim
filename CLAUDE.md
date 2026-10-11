@@ -11,8 +11,12 @@ To'liq reja hujjati: https://claude.ai/code/artifact/aabe39af-c4d7-4511-9a60-b0e
 ```bash
 uv run pytest                 # testlar
 uv run ruff check . && uv run ruff format .
+uv run alembic upgrade head   # bazani oxirgi migratsiyagacha yangilash
 uv run python -m bot.main     # botni ishga tushirish
 ```
+
+Model o'zgarsa: `uv run alembic revision --autogenerate -m "..."`, so'ng faylni qo'lda tekshir
+(`test_models_match_migrations` model va migratsiya farqini ushlaydi).
 
 Kutubxona qo'shish faqat `uv add <paket>` (dev uchun `uv add --dev`). `pip` ishlatma.
 Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shuni tekshiradi).
@@ -59,7 +63,7 @@ created_at, source keyword/ai/manual; indeks (user_id, occurred_on)), `user_keyw
 
 - [x] 0 — skelet, /start, CI
 - [x] 1a — summa va sana parserlari (`bot/services/parser.py`, 73 test)
-- [ ] 1b — baza modellari, Alembic, standart kategoriyalar
+- [x] 1b — baza modellari, Alembic, standart kategoriyalar (`bot/db/`, `bot/services/categories.py`)
 - [ ] 2 — kiritish oqimi (kalit so'zlar, karta, bekor qilish, kirim, qoldiq) + butun pipeline testlari
 - [ ] 3 — AI, user_keywords, ai_requests, shaxsiy kategoriyalar
 - [ ] 4 — hisobotlar (SQL + matplotlib), /oxirgi

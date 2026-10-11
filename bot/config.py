@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     bot_token: SecretStr  # SecretStr: logda yoki xatoda token ochiq ko'rinmaydi
     timezone: str = "Asia/Tashkent"
     log_level: str = "INFO"
+    database_url: str = "sqlite+aiosqlite:///sarfim.db"
 
     @property
     def tz(self) -> ZoneInfo:
