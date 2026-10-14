@@ -21,6 +21,20 @@ class PendingCategory(CallbackData, prefix="pc"):
     category_id: int
 
 
+class AiConfirm(CallbackData, prefix="ai"):
+    """AI topgan summani tasdiqlash. Yozuv FSM'da (foydalanuvchi bo'yicha) — ID kerak emas."""
+
+    ok: bool
+
+
+def ai_confirm_keyboard() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ Ha, saqlash", callback_data=AiConfirm(ok=True))
+    b.button(text="✏️ Summani o'zim yozaman", callback_data=AiConfirm(ok=False))
+    b.adjust(1)
+    return b.as_markup()
+
+
 def card_keyboard(tx_id: int, *, with_category: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="↩️ Bekor qilish", callback_data=TxAction(action="cancel", tx_id=tx_id))

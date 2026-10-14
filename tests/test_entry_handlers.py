@@ -1,14 +1,10 @@
 """Handler'lar soxta Message/CallbackQuery bilan, lekin haqiqiy baza va FSM bilan."""
 
-from datetime import date, datetime
+from datetime import date
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-import time_machine
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.base import StorageKey
-from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy import func, select
 
 from bot.db import repo
@@ -25,64 +21,15 @@ from bot.handlers.entry import (
 )
 from bot.keyboards.entry import PendingCategory, TxAction
 from bot.middlewares.db import DbMiddleware
+from tests.fakes import FakeCallback, FakeMessage, make_state
 
 TZ = ZoneInfo("Asia/Tashkent")
 TODAY = date(2026, 10, 11)
 
 
-@pytest.fixture(autouse=True)
-def frozen_time():
-    with time_machine.travel(datetime(2026, 10, 11, 12, 0, tzinfo=TZ), tick=False):
-        yield
+pytestmark = pytest.mark.usefixtures("frozen_time")
 
-
-class FakeMessage:
-    def __init__(self, text: str | None = None) -> None:
-        self.text = text
-        self.answers: list[tuple[str, object]] = []
-        self.edits: list[tuple[str, object]] = []
-        self.markups: list[object] = []
-
-    async def answer(self, text, reply_markup=None, **_):
-        self.answers.append((text, reply_markup))
-
-    async def edit_text(self, text, reply_markup=None, **_):
-        self.edits.append((text, reply_markup))
-
-    async def edit_reply_markup(self, reply_markup=None, **_):
-        self.markups.append(reply_markup)
-
-
-class FakeCallback:
-    def __init__(self) -> None:
-        self.message = FakeMessage()
-        self.alerts: list[str | None] = []
-
-    async def answer(self, text=None, show_alert=False, **_):
-        self.alerts.append(text)
-
-
-def _state(user_id: int) -> FSMContext:
-    return FSMContext(MemoryStorage(), StorageKey(bot_id=1, chat_id=user_id, user_id=user_id))
-
-
-@pytest.fixture
-async def me(session) -> User:
-    user = await repo.get_or_create_user(session, 1001, "Akobir")
-    await session.commit()
-    return user
-
-
-@pytest.fixture
-async def stranger(session) -> User:
-    user = await repo.get_or_create_user(session, 2002, "Begona")
-    await session.commit()
-    return user
-
-
-@pytest.fixture
-def state() -> FSMContext:
-    return _state(1001)
+_state = make_state
 
 
 async def send(text, state, session, user) -> FakeMessage:

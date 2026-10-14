@@ -94,7 +94,7 @@ INCOME_KEYWORDS: Final = (
 _TOKEN_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*")
 
 
-def _tokens(text: str) -> list[str]:
+def tokens(text: str) -> list[str]:
     return _TOKEN_RE.findall(normalize(text))
 
 
@@ -106,16 +106,16 @@ def _matches(token: str, stem: str) -> bool:
     return token[len(stem) :] in _SUFFIXES
 
 
-def _any_match(tokens: list[str], stems: tuple[str, ...]) -> bool:
-    return any(_matches(t, s) for t in tokens for s in stems)
+def _any_match(words: list[str], stems: tuple[str, ...]) -> bool:
+    return any(_matches(t, s) for t in words for s in stems)
 
 
 def categorize(text: str) -> str | None:
     """Bitta kategoriya aniq topilsa uning nomi, topilmasa yoki bir nechta bo'lsa — None."""
-    tokens = _tokens(text)
-    found = [name for name, stems in KEYWORDS.items() if _any_match(tokens, stems)]
+    words = tokens(text)
+    found = [name for name, stems in KEYWORDS.items() if _any_match(words, stems)]
     return found[0] if len(found) == 1 else None
 
 
 def is_income(text: str) -> bool:
-    return normalize(text).startswith("+") or _any_match(_tokens(text), INCOME_KEYWORDS)
+    return normalize(text).startswith("+") or _any_match(tokens(text), INCOME_KEYWORDS)

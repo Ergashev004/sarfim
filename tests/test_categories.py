@@ -67,7 +67,11 @@ async def test_command_lists_own_and_default_only(session):
 def test_command_registered_and_mentioned_in_welcome():
     from bot.handlers.categories import router
 
-    [handler] = router.message.handlers
-    commands = [f.callback for f in handler.filters if isinstance(f.callback, Command)]
+    commands = [
+        f.callback
+        for handler in router.message.handlers
+        for f in handler.filters or []
+        if isinstance(f.callback, Command)
+    ]
     assert commands and "kategoriyalar" in commands[0].commands
     assert "/kategoriyalar" in build_welcome_text("Akobir")

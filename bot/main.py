@@ -12,6 +12,8 @@ from bot.config import get_settings
 from bot.db.session import make_engine, make_sessionmaker
 from bot.handlers import categories, entry, start
 from bot.middlewares.db import DbMiddleware
+from bot.services.gemini import GeminiClient
+from bot.services.resolver import AiGateway
 
 
 async def main() -> None:
@@ -26,7 +28,18 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     engine = make_engine(settings.database_url)
-    dp = Dispatcher(tz=settings.tz)  # tz handler'larga parametr sifatida uzatiladi
+
+    ai = None
+    api_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
+    if api_key:
+        client = GeminiClient(api_key, settings.ai_model, settings.ai_timeout_s)
+        ai = AiGateway(client=client, daily_limit=settings.ai_daily_limit, tz=settings.tz)
+        logging.info("AI yoqilgan: %s", settings.ai_model)
+    else:
+        logging.info("GEMINI_API_KEY yo'q — AI o'chiq, faqat kalit so'zlar va tugmalar")
+
+    # tz va ai handler'larga parametr sifatida uzatiladi
+    dp = Dispatcher(tz=settings.tz, ai=ai)
     dp.update.middleware(DbMiddleware(make_sessionmaker(engine)))
     # entry oxirida: u har qanday matnni oladi
     dp.include_routers(start.router, categories.router, entry.router)

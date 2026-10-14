@@ -1,5 +1,6 @@
 """Standart kategoriyalar va ular bilan bog'liq cheklovlar."""
 
+import re
 from html import escape
 from typing import Final
 
@@ -23,6 +24,9 @@ DEFAULT_CATEGORIES: Final[tuple[tuple[str, str], ...]] = (
 
 FALLBACK_CATEGORY: Final = "Boshqa"  # shaxsiy kategoriya o'chirilsa yozuvlar shu yerga o'tadi
 MAX_CUSTOM_CATEGORIES: Final = 3
+CUSTOM_EMOJI: Final = "🏷"
+NAME_MIN_LEN: Final = 2
+NAME_MAX_LEN: Final = 32  # categories.name String(32)
 
 EXAMPLES_PER_CATEGORY: Final = 4
 
@@ -57,3 +61,22 @@ def render_category_list(
     lines += [line(name, emoji, []) for name, emoji in custom]
     lines += ["", "Kategoriya aniqlanmasa, bot tugmalar orqali so'raydi."]
     return "\n".join(lines)
+
+
+def clean_category_name(text: str) -> str:
+    """Ortiqcha bo'shliqlarni olib tashlaydi, birinchi harfni katta qiladi."""
+    name = re.sub(r"\s+", " ", text).strip()
+    return name[:1].upper() + name[1:]
+
+
+def validate_category_name(name: str, existing: list[str], custom_count: int) -> str | None:
+    """Xato matni yoki None (nom yaroqli). existing — foydalanuvchi ko'radigan barcha nomlar."""
+    if custom_count >= MAX_CUSTOM_CATEGORIES:
+        return f"Ko'pi bilan {MAX_CUSTOM_CATEGORIES} ta shaxsiy kategoriya qo'shish mumkin."
+    if not NAME_MIN_LEN <= len(name) <= NAME_MAX_LEN:
+        return f"Nom {NAME_MIN_LEN}–{NAME_MAX_LEN} belgidan iborat bo'lsin."
+    if name.startswith("/") or not any(ch.isalpha() for ch in name):
+        return "Nomda kamida bitta harf bo'lsin. Masalan: <code>Sport</code>"
+    if name.casefold() in {e.casefold() for e in existing}:
+        return "Bunday kategoriya allaqachon bor."
+    return None

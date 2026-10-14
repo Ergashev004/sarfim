@@ -1,10 +1,16 @@
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
 from alembic import command
 from alembic.config import Config
 
+from bot.db import repo
+from bot.db.models import User
 from bot.db.session import make_engine, make_sessionmaker
+from tests.fakes import make_state
 
 ALEMBIC_DIR = Path(__file__).resolve().parents[1] / "alembic"
 
@@ -44,3 +50,30 @@ async def sessionmaker(migrated_db: str):
 async def session(sessionmaker):
     async with sessionmaker() as s:
         yield s
+
+
+@pytest.fixture
+def frozen_time():
+    """2026-10-11 12:00, Toshkent. Modulda: pytestmark = pytest.mark.usefixtures("frozen_time")."""
+    tz = ZoneInfo("Asia/Tashkent")
+    with time_machine.travel(datetime(2026, 10, 11, 12, 0, tzinfo=tz), tick=False):
+        yield
+
+
+@pytest.fixture
+async def me(session) -> User:
+    user = await repo.get_or_create_user(session, 1001, "Akobir")
+    await session.commit()
+    return user
+
+
+@pytest.fixture
+async def stranger(session) -> User:
+    user = await repo.get_or_create_user(session, 2002, "Begona")
+    await session.commit()
+    return user
+
+
+@pytest.fixture
+def state():
+    return make_state(1001)

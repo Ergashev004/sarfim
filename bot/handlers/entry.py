@@ -1,5 +1,6 @@
 """Xarajat/kirim kiritish oqimi. Mantiq servislarda, bu yerda faqat Telegram."""
 
+from dataclasses import replace
 from datetime import date
 from zoneinfo import ZoneInfo
 
@@ -13,8 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db import repo
 from bot.db.models import Category, Transaction, TransactionSource, TransactionType, User
 from bot.keyboards.entry import (
+    AiConfirm,
     PendingCategory,
     TxAction,
+    ai_confirm_keyboard,
     card_keyboard,
     category_keyboard,
     date_keyboard,
@@ -24,6 +27,7 @@ from bot.services.card import (
     date_choices,
     format_amount,
     is_allowed_date,
+    render_ai_confirm,
     render_card,
 )
 from bot.services.clock import today_in
@@ -31,16 +35,21 @@ from bot.services.entry import (
     AmountQuestion,
     Entry,
     EntryStatus,
+    confirmed,
     parse_entry,
+    rejected,
     with_amount,
     with_category,
 )
+from bot.services.resolver import AiGateway, learn_keyword, resolve
 
 router = Router(name="entry")
 
 NOT_FOUND = "Yozuv topilmadi yoki allaqachon bekor qilingan."
 STALE = "Bu so'rov eskirgan — xarajatni qaytadan yozing."
 CANCELLED = "↩️ Bekor qilindi — yozuv o'chirildi."
+AI_CONFIRMED = "✅ Tasdiqlandi"
+AI_REJECTED = "✏️ Tushunarli, summani o'zingiz yozing"
 
 AMOUNT_QUESTIONS = {
     AmountQuestion.MISSING: "Summani yozing, masalan: <code>30000</code>",
@@ -57,6 +66,7 @@ AMOUNT_QUESTIONS = {
 class EntryForm(StatesGroup):
     amount = State()
     category = State()
+    confirm = State()  # AI topgan summa tasdiqlanishi kutilmoqda
 
 
 # ---------------------------------------------------------------------------
@@ -84,17 +94,14 @@ async def build_card(
         category=label,
         balance=await repo.get_balance(session, tx.user_id),
         rounded=rounded,
+        ai_category=tx.source is TransactionSource.AI and tx.type is TransactionType.EXPENSE,
     )
     markup = card_keyboard(tx.id, with_category=tx.type is TransactionType.EXPENSE)
     return text, markup
 
 
 async def _save(
-    session: AsyncSession,
-    user: User,
-    entry: Entry,
-    source: TransactionSource,
-    category: Category | None,
+    session: AsyncSession, user: User, entry: Entry, category: Category | None
 ) -> Transaction:
     tx = await repo.add_transaction(
         session,
@@ -102,7 +109,7 @@ async def _save(
         kind=entry.kind,
         amount=entry.amount,
         occurred_on=entry.occurred_on,
-        source=source,
+        source=entry.source,
         category_id=category.id if category else None,
         note=entry.note,
     )
@@ -133,7 +140,10 @@ async def process_entry(
     session: AsyncSession,
     db_user: User,
     today: date,
+    ai: AiGateway | None = None,
 ) -> None:
+    entry = await resolve(session, db_user.id, entry, today, ai)
+    await session.commit()  # ai_requests jurnali
     match entry.status:
         case EntryStatus.BAD_DATE | EntryStatus.BAD_AMOUNT:
             await message.answer(entry.reason)
@@ -142,6 +152,18 @@ async def process_entry(
             await state.set_state(EntryForm.amount)
             await state.update_data(entry=entry.to_dict())
             await message.answer(AMOUNT_QUESTIONS[entry.question])
+
+        case EntryStatus.CONFIRM_AI:
+            await state.set_state(EntryForm.confirm)
+            await state.update_data(entry=entry.to_dict())
+            label = None
+            if entry.category is not None:
+                category = await repo.get_category_by_name(session, db_user.id, entry.category)
+                label = category_label(category.name, category.emoji) if category else None
+            await message.answer(
+                render_ai_confirm(amount=entry.amount, category=label, kind=entry.kind),
+                reply_markup=ai_confirm_keyboard(),
+            )
 
         case EntryStatus.NEED_CATEGORY:
             await state.set_state(EntryForm.category)
@@ -156,8 +178,18 @@ async def process_entry(
             await state.clear()
             category = None
             if entry.kind is TransactionType.EXPENSE:
-                category = await repo.get_default_category(session, entry.category)
-            tx = await _save(session, db_user, entry, TransactionSource.KEYWORD, category)
+                category = await repo.get_category_by_name(session, db_user.id, entry.category)
+                if category is None:  # masalan, shaxsiy kategoriya shu orada o'chirilgan
+                    await process_entry(
+                        message,
+                        replace(entry, category=None, status=EntryStatus.NEED_CATEGORY),
+                        state,
+                        session,
+                        db_user,
+                        today,
+                    )
+                    return
+            tx = await _save(session, db_user, entry, category)
             text, markup = await build_card(session, tx, today, rounded=entry.rounded)
             await message.answer(text, reply_markup=markup)
 
@@ -171,7 +203,12 @@ _not_command = ~F.text.startswith("/")
 
 @router.message(EntryForm.amount, F.text, _not_command)
 async def on_amount_reply(
-    message: Message, state: FSMContext, session: AsyncSession, db_user: User, tz: ZoneInfo
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: User,
+    tz: ZoneInfo,
+    ai: AiGateway | None = None,
 ) -> None:
     today = today_in(tz)
     data = await state.get_data()
@@ -183,16 +220,22 @@ async def on_amount_reply(
     elif entry.status is EntryStatus.BAD_AMOUNT:
         await message.answer(entry.reason)  # holat saqlanadi, summani qayta kutamiz
         return
-    await process_entry(message, entry, state, session, db_user, today)
+    await process_entry(message, entry, state, session, db_user, today, ai)
 
 
 @router.message(F.text, _not_command)
 async def on_text(
-    message: Message, state: FSMContext, session: AsyncSession, db_user: User, tz: ZoneInfo
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: User,
+    tz: ZoneInfo,
+    ai: AiGateway | None = None,
 ) -> None:
     await state.clear()
     today = today_in(tz)
-    await process_entry(message, parse_entry(message.text, today), state, session, db_user, today)
+    entry = parse_entry(message.text, today)
+    await process_entry(message, entry, state, session, db_user, today, ai)
 
 
 # ---------------------------------------------------------------------------
@@ -220,11 +263,35 @@ async def on_pending_category(
         return
 
     await state.clear()
+    today = today_in(tz)
     entry = with_category(Entry.from_dict(raw), category.name)
-    tx = await _save(session, db_user, entry, TransactionSource.MANUAL, category)
-    text, markup = await build_card(session, tx, today_in(tz), rounded=entry.rounded)
+    await learn_keyword(session, db_user.id, entry.note, category.id, today)
+    tx = await _save(session, db_user, entry, category)
+    text, markup = await build_card(session, tx, today, rounded=entry.rounded)
     await _edit(callback, text, markup)
     await callback.answer()
+
+
+@router.callback_query(AiConfirm.filter())
+async def on_ai_confirm(
+    callback: CallbackQuery,
+    callback_data: AiConfirm,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: User,
+    tz: ZoneInfo,
+) -> None:
+    raw = (await state.get_data()).get("entry")
+    if await state.get_state() != EntryForm.confirm.state or raw is None:
+        await callback.answer(STALE, show_alert=True)
+        return
+    entry = Entry.from_dict(raw)
+    await state.clear()
+    await callback.answer()
+    await _edit(callback, AI_CONFIRMED if callback_data.ok else AI_REJECTED, None)
+    entry = confirmed(entry) if callback_data.ok else rejected(entry)
+    # Tasdiqdan keyin AI qayta chaqirilmaydi (ai=None): NEED_CATEGORY bo'lsa — tugmalar
+    await process_entry(callback.message, entry, state, session, db_user, today_in(tz))
 
 
 @router.callback_query(TxAction.filter())
@@ -270,6 +337,7 @@ async def on_tx_action(
                 return
             tx.category_id = category.id
             tx.source = TransactionSource.MANUAL
+            await learn_keyword(session, db_user.id, tx.note, category.id, today)
             await session.commit()
             await _edit(callback, *await build_card(session, tx, today))
         case "setdate":

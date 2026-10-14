@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import date
 from enum import StrEnum
 
-from bot.db.models import TransactionType
+from bot.db.models import TransactionSource, TransactionType
 from bot.services.categorizer import categorize, is_income
 from bot.services.parser import AmountStatus, DateStatus, parse_amount, parse_date
 
@@ -24,6 +24,7 @@ class EntryStatus(StrEnum):
     READY = "ready"  # saqlashga tayyor
     NEED_CATEGORY = "need_category"  # kategoriya tugmalari kerak
     NEED_AMOUNT = "need_amount"  # summani so'raymiz
+    CONFIRM_AI = "confirm_ai"  # AI topgan summa foydalanuvchi tasdig'ini kutadi
     BAD_AMOUNT = "bad_amount"
     BAD_DATE = "bad_date"
 
@@ -43,7 +44,8 @@ class Entry:
     amount: int | None = None
     rounded: bool = False
     occurred_on: date | None = None
-    category: str | None = None  # standart kategoriya nomi (kalit so'zdan)
+    category: str | None = None  # kategoriya nomi (standart yoki shaxsiy)
+    source: TransactionSource = TransactionSource.KEYWORD  # kategoriya qayerdan olingan
     note: str = ""
     reason: str | None = None  # BAD_* holatda foydalanuvchiga ko'rsatiladigan matn
     question: AmountQuestion | None = None
@@ -59,6 +61,7 @@ class Entry:
         data = dict(data)
         data["status"] = EntryStatus(data["status"])
         data["kind"] = TransactionType(data["kind"])
+        data["source"] = TransactionSource(data["source"])
         if data["occurred_on"]:
             data["occurred_on"] = date.fromisoformat(data["occurred_on"])
         if data["question"]:
@@ -129,5 +132,36 @@ def with_amount(entry: Entry, text: str) -> Entry | None:
             return None
 
 
-def with_category(entry: Entry, category: str) -> Entry:
-    return replace(entry, category=category, status=EntryStatus.READY)
+def with_category(
+    entry: Entry, category: str, source: TransactionSource = TransactionSource.MANUAL
+) -> Entry:
+    return replace(entry, category=category, source=source, status=EntryStatus.READY)
+
+
+def with_learned_category(entry: Entry, category: str) -> Entry:
+    """Foydalanuvchi o'rgatgan so'z lug'atdan ustun. Holat faqat NEED_CATEGORY bo'lsa o'zgaradi."""
+    status = EntryStatus.READY if entry.status is EntryStatus.NEED_CATEGORY else entry.status
+    return replace(entry, category=category, source=TransactionSource.KEYWORD, status=status)
+
+
+def with_ai_amount(entry: Entry, amount: int, category: str | None) -> Entry:
+    """AI topgan summa saqlashdan oldin tasdiqlanadi. Kategoriya yo'q bo'lsa, avvalgisi qoladi."""
+    if category is not None:
+        entry = replace(entry, category=category, source=TransactionSource.AI)
+    return replace(
+        entry, amount=amount, rounded=False, question=None, status=EntryStatus.CONFIRM_AI
+    )
+
+
+def confirmed(entry: Entry) -> Entry:
+    """Foydalanuvchi AI summasini tasdiqladi."""
+    return replace(entry, status=_next_status(entry))
+
+
+def rejected(entry: Entry) -> Entry:
+    """AI summasi rad etildi: summani qo'lda so'raymiz, AI kategoriyasiga ham ishonmaymiz."""
+    if entry.source is TransactionSource.AI:
+        entry = replace(entry, category=None, source=TransactionSource.KEYWORD)
+    return replace(
+        entry, amount=None, status=EntryStatus.NEED_AMOUNT, question=AmountQuestion.MULTIPLE
+    )

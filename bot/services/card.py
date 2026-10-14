@@ -35,6 +35,20 @@ def category_label(name: str, emoji: str | None) -> str:
     return f"{emoji} {name}" if emoji else name
 
 
+def render_ai_confirm(*, amount: int, category: str | None, kind: TransactionType) -> str:
+    """AI topgan summani tasdiqlash xabari. category — tayyor yorliq yoki None."""
+    lines = [
+        "🤖 <b>Shunday tushundim:</b>",
+        f"{'💵' if kind is TransactionType.INCOME else '💸'} {format_amount(amount)}",
+    ]
+    if kind is TransactionType.EXPENSE:
+        lines.append(
+            f"📂 {escape(category, quote=False) if category else 'kategoriyani keyin tanlaysiz'}"
+        )
+    lines += ["", "To'g'rimi?"]
+    return "\n".join(lines)
+
+
 def render_card(
     *,
     kind: TransactionType,
@@ -44,12 +58,15 @@ def render_card(
     category: str | None = None,  # tayyor yorliq: "🚕 Transport"
     balance: int | None = None,  # None — kirim yo'q, qoldiq qatori chiqmaydi
     rounded: bool = False,
+    ai_category: bool = False,  # kategoriyani AI tanlagan
 ) -> str:
     if kind is TransactionType.INCOME:
         lines = ["✅ <b>Kirim saqlandi</b>", f"💵 {format_amount(amount)}"]
     else:
         lines = ["✅ <b>Xarajat saqlandi</b>", f"💸 {format_amount(amount)}"]
         lines.append(f"📂 {escape(category or '—', quote=False)}")
+        if ai_category:
+            lines.append("<i>🤖 Kategoriyani AI tanladi — xato bo'lsa, «Kategoriya»ni bosing</i>")
     lines.append(f"📅 {format_date(occurred_on, today)}")
     if rounded:
         lines.append("<i>Tiyin eng yaqin so'mga yaxlitlandi</i>")

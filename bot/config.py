@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///sarfim.db"
 
+    # AI ixtiyoriy: kalit bo'lmasa bot kalit so'zlar va tugmalar bilan ishlaydi
+    gemini_api_key: SecretStr | None = None
+    ai_model: str = "gemini-3.5-flash-lite"
+    ai_timeout_s: float = 10.0
+    ai_daily_limit: int = 50  # bitta foydalanuvchi uchun kuniga
+
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
