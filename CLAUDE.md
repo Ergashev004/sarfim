@@ -13,7 +13,7 @@ uv run pytest                 # testlar
 uv run ruff check . && uv run ruff format .
 uv run alembic upgrade head   # bazani oxirgi migratsiyagacha yangilash
 uv run python -m bot.main     # botni ishga tushirish
-uv run python -m scripts.eval_ai [model]  # AI baholash (haqiqiy kalit kerak, CI'ga kirmaydi)
+uv run python -m scripts.eval_ai [model] [--rpm 15]  # AI baholash (haqiqiy kalit, CI'ga kirmaydi)
 ```
 
 Model o'zgarsa: `uv run alembic revision --autogenerate -m "..."`, so'ng faylni qo'lda tekshir
@@ -32,12 +32,14 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - `bot/middlewares/db.py` — har update uchun sessiya + `db_user` (foydalanuvchi bazaga yoziladi).
 - Kiritish: `services/entry.py: parse_entry()` → `Entry` (READY / NEED_CATEGORY / NEED_AMOUNT / BAD_*).
   Kategoriyasi noaniq yozuv tanlanguncha bazaga yozilmaydi (FSM xotirada, restartda yo'qoladi).
-- `services/resolver.py: resolve()` — kategoriyani aniqlashtiradi: `user_keywords` lug'atdan ustun, keyin AI.
+- `services/resolver.py: resolve()` — kategoriyani aniqlashtiradi: `user_keywords` → shaxsiy kategoriya nomi
+  (`categorizer.match_custom`) → lug'at → AI.
   Bir nechta raqamda AI summa taklif qiladi → `CONFIRM_AI` (tasdiqsiz saqlanmaydi).
   Kategoriya qo'lda tanlansa/tuzatilsa `learn_keyword()` birinchi mazmunli so'zni eslab qoladi.
 - AI: `services/ai.py` (prompt, JSON sxema, `parse_answer` — provayderga bog'liq emas),
   `services/gemini.py` (yagona provayder klienti). Handler'larga `ai: AiGateway | None` (kalit yo'q — None).
-  Har so'rov `ai_requests` ga yoziladi; kunlik limit `AI_DAILY_LIMIT`. Testlarda `tests/fakes.py: gateway()`.
+  Har so'rov `ai_requests` ga yoziladi; kunlik limit `AI_DAILY_LIMIT`, timeout `AI_TIMEOUT_S` (10 s; Gemini 10 s dan kam deadline'ni rad etadi).
+  AI kutilayotganda handler `resolve(busy=...)` orqali "typing" yuboradi. Testlarda `tests/fakes.py: gateway()`.
 - Umumiy test fixture'lari (`me`, `stranger`, `state`, `frozen_time`) — `tests/conftest.py`.
 - Sozlamalar `.env` dan (`bot/config.py`, pydantic-settings). Token va kalitlar kodga yozilmaydi.
 
@@ -59,7 +61,8 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - Avval sana parseri ishlaydi, keyin qolgan matndan summa olinadi.
 - Kirim: boshida `+` yoki "oylik", "maosh", "stipendiya", "keldi", "kirim" so'zlari. Kirimga kategoriya berilmaydi.
 - Xarajat kategoriyasi aniq bo'lsa darhol saqlanadi; kartada [Bekor qilish] [Kategoriya] [Sana].
-  Tartib: `user_keywords` → standart kalit so'zlar (lug'at) → AI → tugmalar. Foydalanuvchi o'rgatgan so'z
+  Tartib: `user_keywords` → shaxsiy kategoriya nomi matnda → standart kalit so'zlar (lug'at) → AI → tugmalar.
+  Nomning har bir so'zi matnda bo'lishi kerak ("Ikkinchi ish" ← "ikkinchi ishdagilar", "ikkinchi non" emas). Foydalanuvchi o'rgatgan so'z
   lug'atdan ustun; bitta so'z qayta tuzatilsa eng oxirgisi qoladi (upsert). Matnda bir nechta
   o'rganilgan so'z turli kategoriyaga olib borsa — lug'atga o'tiladi.
 - 11 ta standart kategoriya: Oziq-ovqat, Transport, Uy/kommunal, Aloqa/internet, Kiyim, Sog'liq, Ta'lim,

@@ -1,6 +1,7 @@
 """Kalit so'zlar bo'yicha kategoriya va kirimni aniqlash (AI'siz).
 
 Qoida: so'z o'zakdan boshlansa mos keladi ("taksiga" -> "taksi").
+Bitta so'zga bir nechta o'zak mos kelsa, eng uzuni olinadi ("o'yinchoq" — "o'yin" emas).
 3 harfli va undan qisqa o'zaklar ("non", "gaz", "osh") faqat to'liq yoki ma'lum qo'shimcha
 bilan mos keladi — aks holda "nonushta" non, "gazeta" gaz bo'lib qolardi.
 """
@@ -57,9 +58,9 @@ KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "Sog'liq": (
         "dori", "dorixona", "apteka", "shifokor", "vrach", "doktor", "klinika", "kasalxona",
-        "stomatolog", "tish", "analiz",
+        "stomatolog", "tish", "analiz", "uzi",
         "дори", "дорихона", "аптека", "шифокор", "врач", "доктор", "клиника", "касалхона",
-        "стоматолог", "тиш", "анализ",
+        "стоматолог", "тиш", "анализ", "узи",
     ),
     "Ta'lim": (
         "kurs", "kitob", "darslik", "kontrakt", "o'qish", "oqish", "repetitor", "ta'lim",
@@ -81,8 +82,9 @@ KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "Sovg'alar": (
         "sovg'a", "sovga", "tug'ilgan", "tugilgan", "gul", "guldasta", "to'y", "toy", "tuhfa",
-        "podarok",
+        "podarok", "o'yinchoq", "oyinchoq", "tabrik", "kartochka",
         "совға", "совга", "туғилган", "тугилган", "гул", "тўй", "туй", "туҳфа", "подарок",
+        "ўйинчоқ", "уйинчок", "игрушка", "табрик", "карточка",
     ),
 }  # fmt: skip
 
@@ -110,11 +112,47 @@ def _any_match(words: list[str], stems: tuple[str, ...]) -> bool:
     return any(_matches(t, s) for t in words for s in stems)
 
 
+def _token_category(token: str) -> str | None:
+    """So'zga eng uzun mos o'zakning kategoriyasi."""
+    best: tuple[int, str] | None = None
+    for name, stems in KEYWORDS.items():
+        for stem in stems:
+            if _matches(token, stem) and (best is None or len(stem) > best[0]):
+                best = (len(stem), name)
+    return best[1] if best else None
+
+
 def categorize(text: str) -> str | None:
     """Bitta kategoriya aniq topilsa uning nomi, topilmasa yoki bir nechta bo'lsa — None."""
+    found = {c for t in tokens(text) if (c := _token_category(t)) is not None}
+    return found.pop() if len(found) == 1 else None
+
+
+def _name_matches(words: list[str], name: str) -> int:
+    """Nomning har bir so'zi matnda bo'lsa — so'zlar soni, aks holda 0.
+
+    Bir so'zli nom qisqa o'zak qoidasiga bo'ysunadi ("cs" -> "csga", lekin "csv" emas).
+    Ko'p so'zli nomda so'zlar birgalikda kontekst beradi, shuning uchun oddiy prefiks yetarli
+    ("ikkinchi ish" -> "ikkinchi ishdagilar").
+    """
+    parts = tokens(name)
+    if not parts:
+        return 0
+    if len(parts) == 1:
+        return 1 if any(_matches(t, parts[0]) for t in words) else 0
+    ok = all(any(t.startswith(p) for t in words) for p in parts)
+    return len(parts) if ok else 0
+
+
+def match_custom(text: str, names: list[str]) -> str | None:
+    """Matnda nomi uchragan shaxsiy kategoriya. Bir nechta bo'lsa eng ko'p so'zlisi, teng — None."""
     words = tokens(text)
-    found = [name for name, stems in KEYWORDS.items() if _any_match(words, stems)]
-    return found[0] if len(found) == 1 else None
+    scored = [(n, score) for n in names if (score := _name_matches(words, n))]
+    if not scored:
+        return None
+    best = max(score for _, score in scored)
+    top = [n for n, score in scored if score == best]
+    return top[0] if len(top) == 1 else None
 
 
 def is_income(text: str) -> bool:

@@ -2,7 +2,13 @@ from datetime import date
 
 from bot.db.models import TransactionType
 from bot.keyboards.entry import TxAction, card_keyboard, date_keyboard
-from bot.services.card import date_choices, format_amount, is_allowed_date, render_card
+from bot.services.card import (
+    date_choices,
+    format_amount,
+    is_allowed_date,
+    render_card,
+    render_category_changed,
+)
 
 TODAY = date(2026, 10, 11)
 
@@ -96,3 +102,18 @@ def test_date_keyboard_layout():
     assert rows[-1][0].text == "⬅️ Orqaga"
     # Telegram callback_data cheklovi — 64 bayt
     assert all(len(b.callback_data.encode()) <= 64 for b in _buttons(markup))
+
+
+def test_category_changed_message():
+    text = render_category_changed(
+        amount=210000, old="🚕 Transport", new="🏷 Moshina", learned="balon"
+    )
+    assert "Kategoriya o'zgartirildi" in text
+    assert "210 000 so'm: 🚕 Transport → <b>🏷 Moshina</b>" in text
+    assert "«balon» so'zi eslab qolindi" in text
+
+
+def test_category_changed_without_learned_word_and_html_escaped():
+    text = render_category_changed(amount=5000, old=None, new="<Uy>")
+    assert "— → <b>&lt;Uy&gt;</b>" in text
+    assert "eslab qolindi" not in text

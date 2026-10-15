@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import date
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -9,6 +10,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.utils.chat_action import ChatActionSender
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db import repo
@@ -29,6 +31,7 @@ from bot.services.card import (
     is_allowed_date,
     render_ai_confirm,
     render_card,
+    render_category_changed,
 )
 from bot.services.clock import today_in
 from bot.services.entry import (
@@ -41,7 +44,7 @@ from bot.services.entry import (
     with_amount,
     with_category,
 )
-from bot.services.resolver import AiGateway, learn_keyword, resolve
+from bot.services.resolver import AiGateway, Busy, learn_keyword, resolve
 
 router = Router(name="entry")
 
@@ -72,6 +75,11 @@ class EntryForm(StatesGroup):
 # ---------------------------------------------------------------------------
 # Yordamchilar
 # ---------------------------------------------------------------------------
+
+
+def _typing(message: Message) -> Busy:
+    """AI javobini kutganda chatda "yozmoqda..." ko'rinadi (faqat AI chaqirilsa)."""
+    return partial(ChatActionSender.typing, bot=message.bot, chat_id=message.chat.id)
 
 
 async def _category_buttons(session: AsyncSession, user_id: int) -> list[tuple[int, str]]:
@@ -142,7 +150,7 @@ async def process_entry(
     today: date,
     ai: AiGateway | None = None,
 ) -> None:
-    entry = await resolve(session, db_user.id, entry, today, ai)
+    entry = await resolve(session, db_user.id, entry, today, ai, busy=_typing(message))
     await session.commit()  # ai_requests jurnali
     match entry.status:
         case EntryStatus.BAD_DATE | EntryStatus.BAD_AMOUNT:
@@ -335,11 +343,24 @@ async def on_tx_action(
             if category is None:
                 await callback.answer("Bu kategoriyani tanlab bo'lmaydi.", show_alert=True)
                 return
+            if category.id == tx.category_id:
+                await _edit(callback, *await build_card(session, tx, today))
+                await callback.answer("Kategoriya o'zgarmadi")
+                return
+            previous = await repo.get_category(session, db_user.id, tx.category_id)
             tx.category_id = category.id
             tx.source = TransactionSource.MANUAL
-            await learn_keyword(session, db_user.id, tx.note, category.id, today)
+            learned = await learn_keyword(session, db_user.id, tx.note, category.id, today)
             await session.commit()
             await _edit(callback, *await build_card(session, tx, today))
+            await callback.message.answer(
+                render_category_changed(
+                    amount=tx.amount,
+                    old=category_label(previous.name, previous.emoji) if previous else None,
+                    new=category_label(category.name, category.emoji),
+                    learned=learned,
+                )
+            )
         case "setdate":
             try:
                 new_date = date.fromordinal(callback_data.value)

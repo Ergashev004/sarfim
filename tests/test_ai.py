@@ -3,13 +3,14 @@ import json
 import pytest
 
 from bot.services.ai import (
+    CATEGORY_HINTS,
     MAX_INPUT_LEN,
-    UNKNOWN,
     AiAnswer,
     build_prompt,
     build_schema,
     parse_answer,
 )
+from bot.services.categories import DEFAULT_CATEGORIES, FALLBACK_CATEGORY
 from bot.services.parser import MAX_AMOUNT
 
 CATS = ["Oziq-ovqat", "Transport", "Sport"]
@@ -29,7 +30,7 @@ def test_custom_category_allowed():
 
 @pytest.mark.parametrize(
     "category",
-    [UNKNOWN, "Boshqa", "transport", "Kiyim", "", None, 5, ["Transport"]],
+    ["unknown", "Boshqa", "transport", "Kiyim", "", None, 5, ["Transport"]],
 )
 def test_category_outside_list_dropped(category):
     answer = parse_answer(_raw(category=category), CATS)
@@ -59,7 +60,9 @@ def test_missing_fields():
 
 def test_schema_limits_categories():
     schema = build_schema(CATS)
-    assert schema["properties"]["category"]["enum"] == [*CATS, UNKNOWN]
+    category = schema["properties"]["category"]
+    assert category["type"] == ["string", "null"]
+    assert category["enum"] == [*CATS, None]  # null — "ishonchsiz"
     assert schema["properties"]["amount"]["type"] == "integer"
     assert set(schema["required"]) == {"category", "amount"}
 
@@ -69,3 +72,19 @@ def test_prompt_lists_categories_and_truncates_text():
     assert all(f"- {c}" in prompt for c in CATS)
     assert "x" * MAX_INPUT_LEN in prompt
     assert "x" * (MAX_INPUT_LEN + 1) not in prompt
+
+
+def test_null_category_is_unsure():
+    assert parse_answer('{"category": null, "amount": 5000}', CATS) == AiAnswer(None, 5000)
+
+
+def test_every_default_category_has_hint():
+    """AI'ga beriladigan har bir standart kategoriyaning tavsifi bor ("Boshqa" berilmaydi)."""
+    names = {name for name, _ in DEFAULT_CATEGORIES} - {FALLBACK_CATEGORY}
+    assert set(CATEGORY_HINTS) == names
+
+
+def test_prompt_has_hints_for_defaults_and_plain_custom_names():
+    prompt = build_prompt("matn", ["Kiyim", "Sport"])
+    assert f"- Kiyim: {CATEGORY_HINTS['Kiyim']}" in prompt
+    assert "- Sport\n" in prompt  # shaxsiy kategoriya — faqat nomi

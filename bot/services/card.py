@@ -49,6 +49,23 @@ def render_ai_confirm(*, amount: int, category: str | None, kind: TransactionTyp
     return "\n".join(lines)
 
 
+def render_category_changed(
+    *, amount: int, old: str | None, new: str, learned: str | None = None
+) -> str:
+    """Kategoriya o'zgargani haqida alohida xabar. old/new — tayyor yorliqlar."""
+    before = escape(old, quote=False) if old else "—"
+    lines = [
+        "📂 <b>Kategoriya o'zgartirildi</b>",
+        f"💸 {format_amount(amount)}: {before} → <b>{escape(new, quote=False)}</b>",
+    ]
+    if learned:
+        lines.append(
+            f"<i>«{escape(learned, quote=False)}» so'zi eslab qolindi — "
+            "keyingi safar shu kategoriya avtomatik tanlanadi</i>"
+        )
+    return "\n".join(lines)
+
+
 def render_card(
     *,
     kind: TransactionType,

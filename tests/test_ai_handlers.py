@@ -138,7 +138,7 @@ async def test_confirm_saves_ai_amount(session, me, state):
 
 
 async def test_confirm_without_category_asks_category(session, me, state):
-    ai, _ = gateway({"category": "unknown", "amount": 10000})
+    ai, _ = gateway({"category": None, "amount": 10000})
     await send("2 ta velosiped 5000 dan", state, session, me, ai)
     callback = await confirm(True, state, session, me)
     assert await _transactions(session) == []
@@ -219,3 +219,133 @@ async def test_repeated_correction_of_dictionary_word(session, me, state):
     third = (await _transactions(session))[-1]
     assert third.category_id == kafe
     assert "Kafe/restoran" in (await send("osh 15000", state, session, me)).answers[0][0]
+
+
+# ---------------------------------------------------------------------------
+# 429 (free tier limiti) botni yiqitmaydi
+# ---------------------------------------------------------------------------
+
+
+async def test_rate_limit_shows_buttons_and_is_logged(session, me, state):
+    from sqlalchemy import select
+
+    from bot.db.models import AiRequest
+    from tests.test_gemini import RETRY_INFO, _api_error
+
+    ai, client = gateway(_api_error(429, [RETRY_INFO]))
+    message = await send("velosiped 300000", state, session, me, ai)
+
+    assert len(client.calls) == 1  # bot qayta urinmaydi — foydalanuvchi kutib qolmasin
+    assert await _transactions(session) == []
+    assert await state.get_state() == EntryForm.category.state
+    text, markup = message.answers[0]
+    assert "qaysi kategoriyaga" in text and markup is not None
+
+    [row] = list(await session.scalars(select(AiRequest)))
+    assert (row.success, row.response, row.user_id) == (False, None, me.id)
+    assert row.input_text == "velosiped 300000"
+
+
+async def test_rate_limit_on_multiple_numbers_asks_amount(session, me, state):
+    from tests.test_gemini import _api_error
+
+    ai, _ = gateway(_api_error(429))
+    message = await send("2 ta velosiped 5000 dan", state, session, me, ai)
+    assert await state.get_state() == EntryForm.amount.state
+    assert "bir nechta raqam" in message.answers[0][0]
+
+
+# ---------------------------------------------------------------------------
+# 504 / timeout — haqiqiy GeminiClient orqali (SDK chaqiruvi almashtirilgan)
+# ---------------------------------------------------------------------------
+
+
+def _gemini_gateway(monkeypatch, fake):
+    from zoneinfo import ZoneInfo
+
+    from bot.services.gemini import GeminiClient
+    from bot.services.resolver import AiGateway
+
+    client = GeminiClient("test-key", "gemini-test", timeout_s=0.1)
+    monkeypatch.setattr(client._client.aio.models, "generate_content", fake)
+    monkeypatch.setattr("bot.services.gemini.GRACE_S", 0.0)
+    return AiGateway(client=client, daily_limit=50, tz=ZoneInfo("Asia/Tashkent"))
+
+
+def _raises(error):
+    async def fake(**_):
+        raise error
+
+    return fake
+
+
+async def _hangs(**_):
+    import asyncio
+
+    await asyncio.sleep(10)
+
+
+def _sdk_failures():
+    import httpx
+
+    from tests.test_gemini import _api_error
+
+    return [
+        pytest.param(_raises(_api_error(504)), id="504"),
+        pytest.param(_raises(_api_error(503)), id="503"),
+        pytest.param(_raises(httpx.ReadTimeout("read timeout")), id="httpx-timeout"),
+        pytest.param(_hangs, id="hang-wait_for"),
+    ]
+
+
+@pytest.mark.parametrize("fake", _sdk_failures())
+async def test_server_error_or_timeout_shows_buttons(monkeypatch, session, me, state, fake):
+    from sqlalchemy import select
+
+    from bot.db.models import AiRequest
+
+    ai = _gemini_gateway(monkeypatch, fake)
+    message = await send("velosiped 300000", state, session, me, ai)
+
+    assert await _transactions(session) == []
+    assert await state.get_state() == EntryForm.category.state
+    text, markup = message.answers[0]
+    assert "qaysi kategoriyaga" in text and markup is not None
+    [row] = list(await session.scalars(select(AiRequest)))
+    assert (row.success, row.response) == (False, None)
+
+
+@pytest.mark.parametrize("fake", _sdk_failures())
+async def test_server_error_or_timeout_on_multiple_numbers_asks_amount(
+    monkeypatch, session, me, state, fake
+):
+    ai = _gemini_gateway(monkeypatch, fake)
+    message = await send("2 ta velosiped 5000 dan", state, session, me, ai)
+    assert await _transactions(session) == []
+    assert await state.get_state() == EntryForm.amount.state
+    assert "bir nechta raqam" in message.answers[0][0]
+
+
+# ---------------------------------------------------------------------------
+# "Yozmoqda..." — faqat AI ishlayotganda
+# ---------------------------------------------------------------------------
+
+
+async def test_typing_shown_while_ai_works(session, me, state):
+    ai, _ = gateway({"category": "Transport", "amount": 0}, delay=0.05)
+    message = await send("velosiped 300000", state, session, me, ai)
+    assert message.bot.actions == [(me.telegram_id, "typing")]
+    assert "AI tanladi" in message.answers[0][0]
+
+
+async def test_typing_stops_on_ai_failure(session, me, state):
+    ai, _ = gateway(TimeoutError(), delay=0.05)
+    message = await send("velosiped 300000", state, session, me, ai)
+    assert message.bot.actions == [(me.telegram_id, "typing")]
+    assert "qaysi kategoriyaga" in message.answers[0][0]
+
+
+async def test_no_typing_without_ai_call(session, me, state):
+    ai, client = gateway()
+    message = await send("taksi 30000", state, session, me, ai)  # lug'atdan
+    assert client.calls == [] and message.bot.actions == []

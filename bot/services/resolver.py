@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from datetime import time as dtime
@@ -27,7 +29,7 @@ from bot.services.ai import (
     parse_answer,
 )
 from bot.services.categories import FALLBACK_CATEGORY
-from bot.services.categorizer import tokens
+from bot.services.categorizer import match_custom, tokens
 from bot.services.entry import (
     AmountQuestion,
     Entry,
@@ -54,6 +56,10 @@ _STOP_WORDS: Final = frozenset(
         "сўм", "сум", "минг", "млн", "млрд", "учун", "билан", "тыс", "руб",
     }
 )  # fmt: skip
+
+
+# AI javobi kutilayotganda ochiladigan kontekst (Telegram'da: "yozmoqda..." holati)
+Busy = Callable[[], AbstractAsyncContextManager[object]]
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,14 @@ async def _from_user_keywords(
     return found[0].name if len(found) == 1 else None  # bir nechta bo'lsa — noaniq
 
 
+async def _from_custom_names(
+    session: AsyncSession, user_id: int, entry: Entry, today: date
+) -> str | None:
+    categories = await repo.list_categories(session, user_id)
+    names = [c.name for c in categories if c.user_id is not None]
+    return match_custom(parse_date(entry.note, today).rest, names) if names else None
+
+
 async def _ai_categories(session: AsyncSession, user_id: int) -> list[str]:
     # "Boshqa" AI'ga berilmaydi: noaniq bo'lsa foydalanuvchi o'zi tanlagani yaxshi
     categories = await repo.list_categories(session, user_id)
@@ -111,7 +125,12 @@ def _day_start_utc(today: date, tz: ZoneInfo) -> datetime:
 
 
 async def ask_ai(
-    session: AsyncSession, user_id: int, text: str, ai: AiGateway, today: date
+    session: AsyncSession,
+    user_id: int,
+    text: str,
+    ai: AiGateway,
+    today: date,
+    busy: Busy | None = None,
 ) -> AiAnswer | None:
     """AI'dan so'raydi va ai_requests ga yozadi. Har qanday xatoda None, bot yiqilmaydi."""
     used = await repo.count_ai_requests_since(session, user_id, _day_start_utc(today, ai.tz))
@@ -124,11 +143,12 @@ async def ask_ai(
     reply = None
     answer = None
     try:
-        reply = await ai.client.complete(
-            system=SYSTEM_PROMPT,
-            prompt=build_prompt(text, categories),
-            schema=build_schema(categories),
-        )
+        async with busy() if busy else nullcontext():
+            reply = await ai.client.complete(
+                system=SYSTEM_PROMPT,
+                prompt=build_prompt(text, categories),
+                schema=build_schema(categories),
+            )
         answer = parse_answer(reply.text, categories)
     except Exception:
         log.exception("AI so'rovi muvaffaqiyatsiz: user_id=%s", user_id)
@@ -147,21 +167,29 @@ async def ask_ai(
 
 
 async def resolve(
-    session: AsyncSession, user_id: int, entry: Entry, today: date, ai: AiGateway | None
+    session: AsyncSession,
+    user_id: int,
+    entry: Entry,
+    today: date,
+    ai: AiGateway | None,
+    busy: Busy | None = None,
 ) -> Entry:
-    """Kategoriya tartibi: user_keywords -> lug'at (parse_entry topgani) -> AI -> tugmalar.
+    """Kategoriya tartibi: user_keywords -> shaxsiy kategoriya nomi -> lug'at (parse_entry
+    topgani) -> AI -> tugmalar.
 
     Bir nechta raqam bo'lsa AI summani taklif qiladi (tasdiqlanadi).
     """
     if entry.kind is TransactionType.EXPENSE and entry.status in _CATEGORY_STATUSES:
         learned = await _from_user_keywords(session, user_id, entry, today)
+        if learned is None:
+            learned = await _from_custom_names(session, user_id, entry, today)
         if learned is not None:
             entry = with_learned_category(entry, learned)
 
     if entry.status is EntryStatus.NEED_CATEGORY:
         if ai is None:
             return entry
-        answer = await ask_ai(session, user_id, entry.note, ai, today)
+        answer = await ask_ai(session, user_id, entry.note, ai, today, busy)
         if answer is not None and answer.category is not None:
             return with_category(entry, answer.category, TransactionSource.AI)
         return entry
@@ -171,7 +199,7 @@ async def resolve(
         and entry.question is AmountQuestion.MULTIPLE
         and ai is not None
     ):
-        answer = await ask_ai(session, user_id, entry.note, ai, today)
+        answer = await ask_ai(session, user_id, entry.note, ai, today, busy)
         if answer is None or answer.amount is None:
             return entry
         # Kategoriya allaqachon bor (user_keywords yoki lug'at) bo'lsa, AI'niki olinmaydi

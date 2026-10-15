@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # AI ixtiyoriy: kalit bo'lmasa bot kalit so'zlar va tugmalar bilan ishlaydi
     gemini_api_key: SecretStr | None = None
     ai_model: str = "gemini-3.5-flash-lite"
-    ai_timeout_s: float = 10.0
+    ai_timeout_s: float = 10.0  # + gemini.GRACE_S; Gemini javobi 1–15 s orasida o'zgaradi
     ai_daily_limit: int = 50  # bitta foydalanuvchi uchun kuniga
 
     @property

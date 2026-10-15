@@ -5,7 +5,6 @@ from sqlalchemy import select
 
 from bot.db import repo
 from bot.db.models import AiRequest, TransactionSource
-from bot.services.ai import UNKNOWN
 from bot.services.entry import AmountQuestion, EntryStatus, parse_entry
 from bot.services.resolver import keyword_candidate, learn_keyword, resolve
 from tests.fakes import gateway
@@ -117,11 +116,24 @@ async def test_ai_category_saved_with_ai_source(session, user):
 
 
 async def test_ai_sees_custom_categories(session, user):
+    stranger = await repo.get_or_create_user(session, 2002, None)
+    await repo.add_custom_category(session, stranger.id, "Baliq", None)
     await repo.add_custom_category(session, user.id, "Sport", "🏷")
     ai, client = gateway({"category": "Sport", "amount": 0})
     entry = await resolve(session, user.id, parse_entry("velosiped 300000", TODAY), TODAY, ai)
     assert entry.category == "Sport"
-    assert "- Sport" in client.calls[0]["prompt"]
+    call = client.calls[0]
+    enum = call["schema"]["properties"]["category"]["enum"]
+    assert "- Sport" in call["prompt"] and "Sport" in enum
+    assert "Baliq" not in call["prompt"] and "Baliq" not in enum  # begona foydalanuvchiniki
+
+
+async def test_ai_answer_with_foreign_category_rejected(session, user):
+    stranger = await repo.get_or_create_user(session, 2002, None)
+    await repo.add_custom_category(session, stranger.id, "Baliq", None)
+    ai, _ = gateway({"category": "Baliq", "amount": 0})
+    entry = await resolve(session, user.id, parse_entry("velosiped 300000", TODAY), TODAY, ai)
+    assert entry.status is EntryStatus.NEED_CATEGORY
 
 
 async def test_ai_amount_ignored_when_amount_known(session, user):
@@ -133,7 +145,7 @@ async def test_ai_amount_ignored_when_amount_known(session, user):
 @pytest.mark.parametrize(
     "reply",
     [
-        {"category": UNKNOWN, "amount": 0},
+        {"category": None, "amount": 0},
         {"category": "Boshqa", "amount": 0},
         {"category": "Mashina", "amount": 0},  # ro'yxatda yo'q
         "buzuq javob",
@@ -215,7 +227,7 @@ async def test_user_keyword_beats_ai_with_multiple_numbers(session, user):
 
 
 async def test_ai_amount_without_category(session, user):
-    ai, _ = gateway({"category": UNKNOWN, "amount": 5000})
+    ai, _ = gateway({"category": None, "amount": 5000})
     entry = await resolve(session, user.id, parse_entry("2 ta velosiped 5000", TODAY), TODAY, ai)
     assert entry.status is EntryStatus.CONFIRM_AI
     assert entry.category is None
@@ -290,3 +302,55 @@ async def test_income_ignores_user_keywords(session, user):
     await learn_keyword(session, user.id, "oylik 1", await _cat_id(session, "Transport"), TODAY)
     entry = await resolve(session, user.id, parse_entry("oylik 5 mln", TODAY), TODAY, None)
     assert entry.category is None
+
+
+# ---------------------------------------------------------------------------
+# Shaxsiy kategoriya nomi: user_keywords dan keyin, lug'atdan oldin
+# ---------------------------------------------------------------------------
+
+
+async def test_custom_name_beats_dictionary(session, user):
+    await repo.add_custom_category(session, user.id, "Ikkinchi ish", "🏷")
+    entry = parse_entry("Ikkinchi ishdagilar bilan cafe 600000", TODAY)
+    assert entry.category == "Kafe/restoran"  # lug'at
+    ai, client = gateway()
+    resolved = await resolve(session, user.id, entry, TODAY, ai)
+    assert resolved.status is EntryStatus.READY
+    assert resolved.category == "Ikkinchi ish"
+    assert resolved.source is TransactionSource.KEYWORD
+    assert client.calls == []
+
+
+async def test_custom_name_saves_ai_call(session, user):
+    await repo.add_custom_category(session, user.id, "Cs", None)
+    ai, client = gateway()
+    resolved = await resolve(session, user.id, parse_entry("cs 70k", TODAY), TODAY, ai)
+    assert (resolved.status, resolved.category) == (EntryStatus.READY, "Cs")
+    assert client.calls == []
+
+
+async def test_partial_custom_name_falls_back_to_dictionary(session, user):
+    await repo.add_custom_category(session, user.id, "Ikkinchi ish", None)
+    resolved = await resolve(session, user.id, parse_entry("ikkinchi non 5000", TODAY), TODAY, None)
+    assert resolved.category == "Oziq-ovqat"
+
+
+async def test_user_keyword_beats_custom_name(session, user):
+    custom = await repo.add_custom_category(session, user.id, "Cs", None)
+    fun = await _cat_id(session, "Ko'ngilochar")
+    await repo.save_user_keyword(session, user.id, "turnir", fun)
+    resolved = await resolve(session, user.id, parse_entry("cs turnir 50000", TODAY), TODAY, None)
+    assert resolved.category == "Ko'ngilochar"
+    assert custom.name == "Cs"
+
+
+async def test_strangers_custom_name_ignored(session, user, stranger):
+    await repo.add_custom_category(session, stranger.id, "Cs", None)
+    resolved = await resolve(session, user.id, parse_entry("cs 70k", TODAY), TODAY, None)
+    assert resolved.status is EntryStatus.NEED_CATEGORY
+
+
+async def test_date_word_not_matched_as_custom_name(session, user):
+    await repo.add_custom_category(session, user.id, "Kecha", None)
+    resolved = await resolve(session, user.id, parse_entry("kecha taksi 20000", TODAY), TODAY, None)
+    assert resolved.category == "Transport"

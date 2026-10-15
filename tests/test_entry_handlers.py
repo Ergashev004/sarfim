@@ -267,6 +267,21 @@ async def test_change_category(session, me, state):
     assert after.category_id == kafe
     assert after.source is TransactionSource.MANUAL
     assert "Kafe/restoran" in callback.message.edits[0][0]
+    [(note, markup)] = callback.message.answers  # alohida xabar
+    assert "Kategoriya o'zgartirildi" in note
+    assert "Kafe/restoran" in note
+    assert markup is None
+
+
+async def test_same_category_sends_no_message(session, me, state):
+    tx = await _saved_tx(session, me, state)
+    callback = await press(
+        TxAction(action="setcat", tx_id=tx.id, value=tx.category_id), session, me
+    )
+    assert callback.message.answers == []
+    assert callback.alerts == ["Kategoriya o'zgarmadi"]
+    [after] = await _transactions(session)
+    assert after.source is not TransactionSource.MANUAL
 
 
 async def test_foreign_custom_category_rejected(session, me, stranger, state):
