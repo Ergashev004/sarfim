@@ -10,7 +10,7 @@ from bot.services.card import RELATIVE_DAYS
 class TxAction(CallbackData, prefix="tx"):
     """Saqlangan yozuv ustidagi amal. tx_id ga ishonilmaydi — egasi bazada tekshiriladi."""
 
-    action: str  # cancel | cat | date | setcat | setdate | back
+    action: str  # cancel | cat | date | setcat | setdate | back | open
     tx_id: int
     value: int = 0  # setcat: category_id, setdate: date.toordinal()
 
@@ -81,4 +81,13 @@ def date_keyboard(tx_id: int, dates: list[date]) -> InlineKeyboardMarkup:
     for i in range(0, len(rest), 4):
         b.row(*rest[i : i + 4])
     b.row(_back(tx_id))
+    return b.as_markup()
+
+
+def history_keyboard(tx_ids: list[int]) -> InlineKeyboardMarkup:
+    """/oxirgi: har yozuvga raqamli tugma (5 tadan), bosilsa yozuv kartasi ochiladi."""
+    b = InlineKeyboardBuilder()
+    for i, tx_id in enumerate(tx_ids, 1):
+        b.button(text=str(i), callback_data=TxAction(action="open", tx_id=tx_id))
+    b.adjust(5)
     return b.as_markup()

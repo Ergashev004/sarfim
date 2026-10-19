@@ -15,7 +15,7 @@ from enum import StrEnum
 from html import escape
 
 from bot.services.card import category_label, format_amount
-from bot.services.parser import find_dates, normalize, resolve_date
+from bot.services.parser import DateMatch, find_dates, normalize, resolve_date
 
 MAX_RANGE_DAYS = 366
 CAPTION_LIMIT = 1024  # Telegram: rasm izohi, teglarsiz, UTF-16 birliklarida
@@ -94,6 +94,7 @@ def previous(period: Period) -> Period:
 
 class RangeStatus(StrEnum):
     OK = "ok"
+    NO_DATES = "no_dates"  # matnda sana yo'q — oraliq emas, oddiy yozuv bo'lishi mumkin
     BAD_FORMAT = "bad_format"
     INVALID = "invalid"  # 31.02 kabi
     FUTURE = "future"
@@ -111,15 +112,27 @@ class RangeResult:
 _RANGE_FILLER_RE = re.compile(r"(?:[\s\-–—.,]|\bdan\b|\bgacha\b)*")
 
 
+def _clamp_to_today(first: DateMatch, last: DateMatch, today: date) -> tuple[date, date] | None:
+    """Boshlanish o'tgan, tugash kelajakda (yilsiz — joriy yil bo'yicha): tugash bugungacha."""
+    start = resolve_date(first.day, first.month, first.year or today.year, today)
+    end = resolve_date(last.day, last.month, last.year or today.year, today)
+    if start is None or end is None or not start <= today < end:
+        return None
+    return start, today
+
+
 def parse_range(text: str, today: date) -> RangeResult:
     """ "1.09 - 15.10", "01.09.2026 – 15.10.2026", "1 sentabr - 15 oktabr", yoki bitta sana.
 
-    Yilsiz oxirgi sana bugundan, yilsiz boshlang'ich sana oxirgi sanadan keyin chiqsa —
-    o'tgan yil deb olinadi.
+    Boshlanish o'tgan, tugash kelajakda bo'lsa — tugash bugungacha qisqaradi (10.10-20.10 →
+    10.10–bugun). Aks holda: yilsiz oxirgi sana bugundan, yilsiz boshlang'ich sana oxirgi
+    sanadan keyin chiqsa — o'tgan yil deb olinadi (ikkalasi kelajakda; 20.12 - 10.01).
     """
     text = normalize(text)
     found = find_dates(text)
-    if not 1 <= len(found) <= 2:
+    if not found:
+        return RangeResult(RangeStatus.NO_DATES)
+    if len(found) > 2:
         return RangeResult(RangeStatus.BAD_FORMAT)
 
     rest = text
@@ -131,14 +144,18 @@ def parse_range(text: str, today: date) -> RangeResult:
         return RangeResult(RangeStatus.BAD_FORMAT)
 
     first, last = found[0], found[-1]
-    end = resolve_date(last.day, last.month, last.year, today)
-    if end is None:
-        return RangeResult(RangeStatus.INVALID)
-    start = end
-    if len(found) == 2:
-        start = resolve_date(first.day, first.month, first.year, end)
-        if start is None:
+    clamped = _clamp_to_today(first, last, today) if len(found) == 2 else None
+    if clamped is not None:
+        start, end = clamped
+    else:
+        end = resolve_date(last.day, last.month, last.year, today)
+        if end is None:
             return RangeResult(RangeStatus.INVALID)
+        start = end
+        if len(found) == 2:
+            start = resolve_date(first.day, first.month, first.year, end)
+            if start is None:
+                return RangeResult(RangeStatus.INVALID)
 
     if end > today:
         return RangeResult(RangeStatus.FUTURE)
@@ -151,6 +168,7 @@ def parse_range(text: str, today: date) -> RangeResult:
 
 
 RANGE_ERRORS = {
+    RangeStatus.NO_DATES: "Oraliqni tushunmadim. Masalan: <code>1.09 - 15.10</code>",
     RangeStatus.BAD_FORMAT: "Oraliqni tushunmadim. Masalan: <code>1.09 - 15.10</code>",
     RangeStatus.INVALID: "Bunday sana yo'q. Masalan: <code>1.09 - 15.10</code>",
     RangeStatus.FUTURE: "Oraliq kelajakka tushyapti — bugungacha bo'lgan sanani yozing.",
@@ -220,6 +238,21 @@ def shares(amounts: list[int]) -> list[int]:
     return floors
 
 
+_SHORT_UNITS = ((10**9, "mlrd"), (10**6, "mln"), (10**3, "ming"))
+
+
+def format_short(amount: int) -> str:
+    """Grafik yorliqlari uchun: 999, 45 ming, 1,3 mln, 2 mlrd."""
+    if abs(amount) < 1000:
+        return str(amount)
+    for size, unit in _SHORT_UNITS:
+        value = (Decimal(amount) / size).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        if abs(value) >= 1 or unit == "ming":
+            text = f"{value:f}".rstrip("0").rstrip(".").replace(".", ",")
+            return f"{text} {unit}"
+    raise AssertionError  # "ming" doim qaytaradi
+
+
 def change_percent(current: int, before: int) -> int | None:
     """O'zgarish foizi; oldingi davr 0 bo'lsa None ("—")."""
     if before == 0:
@@ -283,6 +316,22 @@ class ReportData:
     @property
     def is_empty(self) -> bool:
         return self.income == 0 and self.expense == 0
+
+
+CHART_MAX_BARS = 8
+REST_LABEL = "Qolganlari"  # "Boshqa" kategoriyasi bilan adashmasin
+
+
+def fold_categories(
+    categories: list[CategoryTotal], limit: int = CHART_MAX_BARS
+) -> list[tuple[str, int]]:
+    """Grafik uchun (nom, summa): ko'pi bilan `limit` ta, ortig'i bitta "Qolganlari (N ta)"ga."""
+    if len(categories) <= limit:
+        return [(c.name, c.amount) for c in categories]
+    head, rest = categories[: limit - 1], categories[limit - 1 :]
+    folded = [(c.name, c.amount) for c in head]
+    folded.append((f"{REST_LABEL} ({len(rest)} ta)", sum(c.amount for c in rest)))
+    return folded
 
 
 def format_change(value: int | None) -> str:

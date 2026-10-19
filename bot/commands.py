@@ -8,6 +8,8 @@ from aiogram.types import BotCommand, BotCommandScopeDefault
 
 BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="start", description="Botni ishga tushirish"),
+    BotCommand(command="hisobot", description="Hisobot: kirim, chiqim, grafik"),
+    BotCommand(command="oxirgi", description="Oxirgi yozuvlar — tahrirlash va o'chirish"),
     BotCommand(command="kategoriyalar", description="Barcha kategoriyalar ro'yxati"),
 ]
 

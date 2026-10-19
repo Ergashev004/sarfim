@@ -15,7 +15,8 @@ def build_welcome_text(first_name: str | None) -> str:
         "Xarajat yozing:  <code>taksi 30000</code>\n"
         "Kirim yozing:  <code>+5 mln oylik</code>\n"
         "Kategoriyalar:  /kategoriyalar\n"
-        "Hisobot:  /hisobot"
+        "Hisobot:  /hisobot\n"
+        "Oxirgi yozuvlar:  /oxirgi"
     )
 
 

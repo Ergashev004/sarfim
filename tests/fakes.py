@@ -28,11 +28,15 @@ class FakeMessage:
         self.bot = FakeBot()
         self.chat = SimpleNamespace(id=chat_id)
         self.answers: list[tuple[str, object]] = []
+        self.photos: list[tuple[object, str | None]] = []
         self.edits: list[tuple[str, object]] = []
         self.markups: list[object] = []
 
     async def answer(self, text, reply_markup=None, **_):
         self.answers.append((text, reply_markup))
+
+    async def answer_photo(self, photo, caption=None, reply_markup=None, **_):
+        self.photos.append((photo, caption))
 
     async def edit_text(self, text, reply_markup=None, **_):
         self.edits.append((text, reply_markup))

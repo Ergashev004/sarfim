@@ -40,6 +40,11 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
   `services/gemini.py` (yagona provayder klienti). Handler'larga `ai: AiGateway | None` (kalit yo'q — None).
   Har so'rov `ai_requests` ga yoziladi; kunlik limit `AI_DAILY_LIMIT`, timeout `AI_TIMEOUT_S` (10 s; Gemini 10 s dan kam deadline'ni rad etadi).
   AI kutilayotganda handler `resolve(busy=...)` orqali "typing" yuboradi. Testlarda `tests/fakes.py: gateway()`.
+- Hisobot: `services/report.py` (davr, oraliq, matn), `services/chart.py` (matplotlib, faqat `Figure`,
+  handler'da `asyncio.to_thread`). Yig'indilar repo'da SQL bilan. Grafik: kategoriyalar gorizontal ustun
+  (8 tadan ko'pi "Qolganlari"ga), pastida kun/hafta/oy ustunlari. Oraliq kutilayotganda sanasiz matn
+  `SkipHandler` bilan kiritish oqimiga o'tadi.
+- `/oxirgi` (`handlers/history.py`): raqamli tugma → `TxAction(open)` → oddiy karta (o'chirish, kategoriya, sana).
 - Umumiy test fixture'lari (`me`, `stranger`, `state`, `frozen_time`) — `tests/conftest.py`.
 - Sozlamalar `.env` dan (`bot/config.py`, pydantic-settings). Token va kalitlar kodga yozilmaydi.
 
@@ -85,7 +90,8 @@ created_at, source keyword/ai/manual; indeks (user_id, occurred_on)), `user_keyw
 - [x] 2 — kiritish oqimi (kalit so'zlar, karta, bekor qilish, kirim, qoldiq) + butun pipeline testlari
 - [ ] 3 — AI (Gemini), user_keywords, ai_requests, shaxsiy kategoriyalar — kod va testlar tayyor;
       qoldi: haqiqiy kalit bilan `scripts.eval_ai`, model tanlash, Telegram'da smoke
-- [ ] 4 — hisobotlar (SQL + matplotlib), /oxirgi
+- [ ] 4 — hisobotlar (SQL + matplotlib), /oxirgi — kod va testlar tayyor;
+      qoldi: summani tahrirlash, Telegram'da smoke
 - [ ] 5 — shaxsiy foydalanish, README, demo
 
 Matnda ikkita sana bo'lsa (`5.10 kecha`) parser "kecha"ni oladi, `parse_entry` esa summani alohida so'raydi.

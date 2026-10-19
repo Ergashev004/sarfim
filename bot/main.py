@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 from bot.commands import set_bot_commands
 from bot.config import get_settings
 from bot.db.session import make_engine, make_sessionmaker
-from bot.handlers import categories, entry, start
+from bot.handlers import categories, entry, history, report, start
 from bot.middlewares.db import DbMiddleware
 from bot.services.gemini import GeminiClient
 from bot.services.resolver import AiGateway
@@ -42,7 +42,7 @@ async def main() -> None:
     dp = Dispatcher(tz=settings.tz, ai=ai)
     dp.update.middleware(DbMiddleware(make_sessionmaker(engine)))
     # entry oxirida: u har qanday matnni oladi
-    dp.include_routers(start.router, categories.router, entry.router)
+    dp.include_routers(start.router, categories.router, report.router, history.router, entry.router)
 
     try:
         # Bot o'chiq paytida kelgan eski xabarlarni o'tkazib yuboramiz

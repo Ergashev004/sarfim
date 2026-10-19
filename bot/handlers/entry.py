@@ -338,6 +338,9 @@ async def on_tx_action(
             await _edit_markup(callback, date_keyboard(tx.id, date_choices(today)))
         case "back":
             await _edit_markup(callback, card_keyboard(tx.id, with_category=is_expense))
+        case "open":  # /oxirgi ro'yxatidan: karta yangi xabar bo'lib chiqadi
+            text, markup = await build_card(session, tx, today)
+            await callback.message.answer(text, reply_markup=markup)
         case "setcat" if is_expense:
             category = await repo.get_category(session, db_user.id, callback_data.value)
             if category is None:

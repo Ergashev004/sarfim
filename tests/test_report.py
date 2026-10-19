@@ -15,7 +15,9 @@ from bot.services.report import (
     change_percent,
     fill_buckets,
     fits_caption,
+    fold_categories,
     format_period,
+    format_short,
     parse_range,
     period_for,
     previous,
@@ -115,11 +117,17 @@ def test_previous_custom_same_length_right_before():
         ("1-sentabrdan 15-oktabrgacha", date(2026, 9, 1), date(2026, 10, 15)),
         ("1.09 dan 15.10 gacha", date(2026, 9, 1), date(2026, 10, 15)),
         ("16.10", TODAY, TODAY),  # bitta sana = bitta kun
-        # yilsiz sana kelajakka tushsa — o'tgan yil
+        # ikkalasi kelajakda — o'tgan yil
         ("1.11 - 30.11", date(2025, 11, 1), date(2025, 11, 30)),
+        ("17.10 - 20.10", date(2025, 10, 17), date(2025, 10, 20)),
         # boshlanish oxirgi sanaga nisbatan aniqlanadi: dekabr o'tgan yilniki
         ("20.12 - 10.01", date(2025, 12, 20), date(2026, 1, 10)),
-        ("10.10 - 20.10", date(2025, 10, 10), date(2025, 10, 20)),
+        # boshlanish o'tgan, tugash kelajakda — tugash bugungacha qisqaradi
+        ("10.10 - 20.10", date(2026, 10, 10), TODAY),
+        ("16.10 - 17.10", TODAY, TODAY),
+        ("1.01 - 31.12", date(2026, 1, 1), TODAY),
+        ("1.10.2026 - 20.10.2026", date(2026, 10, 1), TODAY),
+        ("1.10.2026 - 20.10", date(2026, 10, 1), TODAY),
         ("1.12 - 15.01.2026", date(2025, 12, 1), date(2026, 1, 15)),
         ("17.10.2025 - 16.10.2026", date(2025, 10, 17), date(2026, 10, 16)),  # 365 kun
     ],
@@ -134,15 +142,18 @@ def test_parse_range_ok(text, start, end):
 @pytest.mark.parametrize(
     ("text", "status"),
     [
-        ("", RangeStatus.BAD_FORMAT),
-        ("sentabr", RangeStatus.BAD_FORMAT),
-        ("o'tgan oy", RangeStatus.BAD_FORMAT),
+        ("", RangeStatus.NO_DATES),
+        ("sentabr", RangeStatus.NO_DATES),
+        ("o'tgan oy", RangeStatus.NO_DATES),
+        ("taksi 30000", RangeStatus.NO_DATES),
         ("1.09 - 15.10 - 20.10", RangeStatus.BAD_FORMAT),
         ("1.09 taksi 15.10", RangeStatus.BAD_FORMAT),
         ("1.13 - 15.10", RangeStatus.BAD_FORMAT),  # 13-oy yo'q
         ("31.02 - 15.10", RangeStatus.INVALID),
         ("1.09 - 31.09", RangeStatus.INVALID),
-        ("1.10.2026 - 20.10.2026", RangeStatus.FUTURE),
+        ("17.10.2026 - 20.10.2026", RangeStatus.FUTURE),
+        ("20.10.2026", RangeStatus.FUTURE),
+        ("1.01.2025 - 20.10.2026", RangeStatus.TOO_LONG),  # qisqartirilgandan keyin ham
         ("15.10.2026 - 1.09.2026", RangeStatus.REVERSED),
         ("1.01.2025 - 15.10.2026", RangeStatus.TOO_LONG),
         ("15.10.2025 - 16.10.2026", RangeStatus.TOO_LONG),  # 367 kun
@@ -365,3 +376,43 @@ def test_fits_caption_counts_utf16_and_ignores_tags():
     assert fits_caption("🎮" * 512)  # emoji = 2 birlik
     assert not fits_caption("🎮" * 513)
     assert fits_caption("&lt;" * 1024)  # ekranda bitta "<"
+
+
+# ---------------------------------------------------------------------------
+# Grafik yordamchilari
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [
+        (0, "0"),
+        (999, "999"),
+        (1_000, "1 ming"),
+        (45_000, "45 ming"),
+        (15_300, "15,3 ming"),
+        (15_350, "15,4 ming"),  # yarmi yuqoriga
+        (999_950, "1 mln"),  # "1000 ming" emas
+        (1_250_000, "1,3 mln"),
+        (120_000_000, "120 mln"),
+        (1_000_000_000, "1 mlrd"),
+    ],
+)
+def test_format_short(amount, expected):
+    assert format_short(amount) == expected
+
+
+def _cats(n: int) -> list[CategoryTotal]:
+    return [CategoryTotal(f"K{i}", None, (n - i) * 1000, 1) for i in range(n)]
+
+
+def test_fold_categories_keeps_up_to_limit():
+    assert fold_categories(_cats(8)) == [(f"K{i}", (8 - i) * 1000) for i in range(8)]
+
+
+def test_fold_categories_merges_tail():
+    folded = fold_categories(_cats(10))
+    assert len(folded) == 8
+    assert folded[:7] == [(f"K{i}", (10 - i) * 1000) for i in range(7)]
+    assert folded[7] == ("Qolganlari (3 ta)", 3000 + 2000 + 1000)
+    assert sum(a for _, a in folded) == sum(c.amount for c in _cats(10))

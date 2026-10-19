@@ -5,9 +5,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import BotCommandScopeDefault
 
 from bot.commands import BOT_COMMANDS, set_bot_commands
-from bot.handlers import categories, entry, start
+from bot.handlers import categories, entry, history, report, start
 
-ROUTERS = [start.router, categories.router, entry.router]
+ROUTERS = [start.router, categories.router, report.router, history.router, entry.router]
 
 
 def _handled_commands() -> set[str]:
