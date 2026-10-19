@@ -80,3 +80,10 @@ def validate_category_name(name: str, existing: list[str], custom_count: int) ->
     if name.casefold() in {e.casefold() for e in existing}:
         return "Bunday kategoriya allaqachon bor."
     return None
+
+
+def validate_category_rename(name: str, existing: list[str], current: str) -> str | None:
+    """Nomni o'zgartirish: limit tekshirilmaydi; eski nom (harf katta-kichigini o'zgartirish ham)
+    "band" hisoblanmaydi."""
+    others = [e for e in existing if e.casefold() != current.casefold()]
+    return validate_category_name(name, others, custom_count=0)

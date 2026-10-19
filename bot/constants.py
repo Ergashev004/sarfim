@@ -35,4 +35,6 @@ AI_NO = "✏️ Summani o'zim yozaman"
 
 # Shaxsiy kategoriyalar
 CATEGORY_ADD = "➕ Kategoriya qo'shish"
+CATEGORY_RENAME_ICON = "✏️"  # tugma: "✏️ Moshina"
+CATEGORY_DELETE = "🗑 O'chirish"
 CANCEL = "Bekor qilish"

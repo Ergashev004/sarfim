@@ -27,6 +27,7 @@ from bot.services.categories import (
     clean_category_name,
     render_category_list,
     validate_category_name,
+    validate_category_rename,
 )
 
 router = Router(name="categories")
@@ -39,8 +40,12 @@ NOT_FOUND = "Kategoriya topilmadi yoki allaqachon o'chirilgan."
 CANCELLED = "Bekor qilindi."
 
 
+ASK_RENAME = "«{name}» uchun yangi nom yozing ({min}–{max} belgi)."
+
+
 class CategoryForm(StatesGroup):
     name = State()
+    rename = State()  # category_id — FSM data'da
 
 
 async def _overview(session: AsyncSession, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -65,7 +70,10 @@ async def cmd_categories(
     message: Message, session: AsyncSession, db_user: User, state: FSMContext | None = None
 ) -> None:
     # Faqat nom kutilayotgan bo'lsa bekor qilamiz — saqlanmagan xarajat yo'qolmasin
-    if state is not None and await state.get_state() == CategoryForm.name.state:
+    if state is not None and await state.get_state() in (
+        CategoryForm.name.state,
+        CategoryForm.rename.state,
+    ):
         await state.clear()
     text, markup = await _overview(session, db_user.id)
     await message.answer(text, reply_markup=markup)
@@ -91,6 +99,35 @@ async def on_category_name(
     await message.answer(text, reply_markup=markup)
 
 
+@router.message(CategoryForm.rename, F.text, ~F.text.startswith("/"))
+async def on_category_rename(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: User
+) -> None:
+    category_id = (await state.get_data()).get("category_id", 0)
+    category = await repo.get_own_custom_category(session, db_user.id, category_id)
+    if category is None:  # shu orada o'chirilgan
+        await state.clear()
+        await message.answer(NOT_FOUND)
+        return
+    name = clean_category_name(message.text)
+    categories = await repo.list_categories(session, db_user.id)
+    error = validate_category_rename(name, [c.name for c in categories], category.name)
+    if error is not None:
+        await message.answer(error, reply_markup=cancel_keyboard())  # nomni qayta kutamiz
+        return
+
+    old = category.name
+    await repo.rename_custom_category(session, db_user.id, category.id, name)
+    await session.commit()
+    await state.clear()
+    await message.answer(
+        f"✏️ «{escape(old, quote=False)}» → «{escape(name, quote=False)}»\n"
+        "<i>Yozuvlar va o'rgatilgan so'zlar shu kategoriyada qoldi.</i>"
+    )
+    text, markup = await _overview(session, db_user.id)
+    await message.answer(text, reply_markup=markup)
+
+
 @router.callback_query(CategoryAction.filter())
 async def on_category_action(
     callback: CallbackQuery,
@@ -103,6 +140,20 @@ async def on_category_action(
         case "add":
             await state.set_state(CategoryForm.name)
             await callback.message.answer(ASK_NAME, reply_markup=cancel_keyboard())
+
+        case "ren":
+            category = await repo.get_own_custom_category(
+                session, db_user.id, callback_data.category_id
+            )
+            if category is None:
+                await callback.answer(NOT_FOUND, show_alert=True)
+                return
+            await state.set_state(CategoryForm.rename)
+            await state.update_data(category_id=category.id)
+            ask = ASK_RENAME.format(
+                name=escape(category.name, quote=False), min=NAME_MIN_LEN, max=NAME_MAX_LEN
+            )
+            await callback.message.answer(ask, reply_markup=cancel_keyboard())
 
         case "cancel":
             await state.clear()

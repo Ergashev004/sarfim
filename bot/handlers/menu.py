@@ -37,6 +37,7 @@ EXPENSE_HINT = (
 # esa qoladi
 _INPUT_STATES = {
     CategoryForm.name.state,
+    CategoryForm.rename.state,
     ReportForm.range.state,
     EntryForm.income.state,
     EditForm.amount.state,

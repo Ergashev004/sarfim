@@ -13,12 +13,14 @@ from bot.handlers.categories import (
     cmd_categories,
     on_category_action,
     on_category_name,
+    on_category_rename,
 )
 from bot.keyboards.categories import CategoryAction
 from bot.services.categories import (
     MAX_CUSTOM_CATEGORIES,
     clean_category_name,
     validate_category_name,
+    validate_category_rename,
 )
 from tests.fakes import FakeCallback, FakeMessage, make_state
 from tests.test_entry_handlers import TODAY
@@ -49,6 +51,26 @@ def test_clean_name():
 )
 def test_validate_name(name, count, error_part):
     error = validate_category_name(name, ["Transport", "Boshqa"], count)
+    if error_part is None:
+        assert error is None
+    else:
+        assert error_part in error
+
+
+@pytest.mark.parametrize(
+    ("name", "error_part"),
+    [
+        ("Mashina", None),
+        ("SPORT", None),  # o'z nomining katta-kichik harfini o'zgartirish
+        ("Sport", None),
+        ("Transport", "allaqachon"),
+        ("Kitob", "allaqachon"),  # boshqa shaxsiy kategoriya
+        ("S", "belgidan"),
+    ],
+)
+def test_validate_rename_ignores_limit_and_own_name(name, error_part):
+    existing = ["Transport", "Sport", "Kitob", "Bog'"]  # limitda (3 ta shaxsiy)
+    error = validate_category_rename(name, existing, current="Sport")
     if error_part is None:
         assert error is None
     else:
@@ -226,3 +248,82 @@ async def test_custom_category_usable_for_entries(session, me, state):
     message = FakeMessage("trenajor 70000")
     await on_text(message, state, session, me, TZ)
     assert "🏷 Sport" in message.answers[0][0]
+
+
+# ---------------------------------------------------------------------------
+# Nomni o'zgartirish
+# ---------------------------------------------------------------------------
+
+
+async def type_new_name(text, session, user, state) -> FakeMessage:
+    message = FakeMessage(text)
+    await on_category_rename(message, state, session, user)
+    return message
+
+
+async def test_manage_keyboard_has_rename_and_delete_per_category(session, me, state):
+    sport = await repo.add_custom_category(session, me.id, "Sport", "🏷")
+    await session.commit()
+    overview = FakeMessage()
+    await cmd_categories(overview, session, me, state)
+    _, markup = overview.answers[0]
+    row = markup.inline_keyboard[-1]
+    assert [b.text for b in row] == ["✏️ 🏷 Sport", "🗑 O'chirish"]
+    actions = [CategoryAction.unpack(b.callback_data) for b in row]
+    assert [(a.action, a.category_id) for a in actions] == [("ren", sport.id), ("del", sport.id)]
+
+
+async def test_rename_keeps_records_and_keywords(session, me, state):
+    sport = await repo.add_custom_category(session, me.id, "Sport", "🏷")
+    await repo.save_user_keyword(session, me.id, "trenajor", sport.id)
+    await _expense_in(session, me, sport.id)
+
+    callback = await act("ren", session, me, state, sport.id)
+    assert "«Sport» uchun yangi nom" in callback.message.answers[0][0]
+    assert await state.get_state() == CategoryForm.rename.state
+
+    message = await type_new_name("  fitnes  zal ", session, me, state)
+    assert "«Sport» → «Fitnes zal»" in message.answers[0][0]
+    assert await state.get_state() is None
+    [renamed] = await _custom(session, me)
+    assert (renamed.id, renamed.name, renamed.emoji) == (sport.id, "Fitnes zal", "🏷")
+    [tx] = await repo_transactions(session, me)
+    assert tx.category_id == sport.id
+    assert await session.scalar(select(UserKeyword.category_id)) == sport.id
+
+
+async def test_rename_to_taken_name_keeps_waiting(session, me, state):
+    sport = await repo.add_custom_category(session, me.id, "Sport", None)
+    await act("ren", session, me, state, sport.id)
+    message = await type_new_name("transport", session, me, state)
+    assert "allaqachon" in message.answers[0][0]
+    assert await state.get_state() == CategoryForm.rename.state
+    assert [c.name for c in await _custom(session, me)] == ["Sport"]
+
+
+async def test_rename_cancel(session, me, state):
+    sport = await repo.add_custom_category(session, me.id, "Sport", None)
+    await act("ren", session, me, state, sport.id)
+    await act("cancel", session, me, state)
+    assert await state.get_state() is None
+    assert [c.name for c in await _custom(session, me)] == ["Sport"]
+
+
+async def test_cannot_rename_standard_or_foreign(session, me, stranger, state):
+    transport = await repo.get_default_category(session, "Transport")
+    foreign = await repo.add_custom_category(session, stranger.id, "Baliq", None)
+    for category in (transport, foreign):
+        callback = await act("ren", session, me, state, category.id)
+        assert callback.alerts == [NOT_FOUND]
+        assert await state.get_state() is None
+        assert not await repo.rename_custom_category(session, me.id, category.id, "Xakker")
+    assert transport.name == "Transport"
+
+
+async def test_rename_category_deleted_meanwhile(session, me, state):
+    sport = await repo.add_custom_category(session, me.id, "Sport", None)
+    await act("ren", session, me, state, sport.id)
+    await act("delok", session, me, state, sport.id)
+    message = await type_new_name("Fitnes", session, me, state)
+    assert message.answers == [(NOT_FOUND, None)]
+    assert await state.get_state() is None

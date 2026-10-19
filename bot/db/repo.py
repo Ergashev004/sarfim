@@ -93,6 +93,18 @@ async def get_own_custom_category(
     return await session.scalar(stmt)
 
 
+async def rename_custom_category(
+    session: AsyncSession, user_id: int, category_id: int, name: str
+) -> bool:
+    """Faqat o'z shaxsiy kategoriyasi; standart yoki begona bo'lsa — False."""
+    result = await session.execute(
+        update(Category)
+        .where(Category.id == category_id, Category.user_id == user_id)
+        .values(name=name)
+    )
+    return result.rowcount > 0
+
+
 async def count_category_transactions(session: AsyncSession, user_id: int, category_id: int) -> int:
     stmt = select(func.count()).where(
         Transaction.user_id == user_id, Transaction.category_id == category_id
