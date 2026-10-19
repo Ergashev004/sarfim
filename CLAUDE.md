@@ -29,6 +29,8 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - `bot/db/` — SQLAlchemy 2 (async) + aiosqlite, migratsiyalar Alembic bilan.
   So'rovlar faqat `bot/db/repo.py` da; yozuvga tegadiganlari `user_id` bo'yicha ham filtrlanadi.
 - Yangi buyruq qo'shilsa `bot/commands.py: BOT_COMMANDS` ga ham yoziladi ("/" menyusi; `test_commands` tekshiradi).
+- Pastki menyu (`keyboards/menu.py`, /start yuboradi): tugma `handlers/menu.py` da mavjud handler'ni chaqiradi.
+  `menu.router` boshqa router'lardan oldin turadi — aks holda tugma matni xarajat yoki kategoriya nomi deb o'qiladi.
 - `bot/middlewares/db.py` — har update uchun sessiya + `db_user` (foydalanuvchi bazaga yoziladi).
 - Kiritish: `services/entry.py: parse_entry()` → `Entry` (READY / NEED_CATEGORY / NEED_AMOUNT / BAD_*).
   Kategoriyasi noaniq yozuv tanlanguncha bazaga yozilmaydi (FSM xotirada, restartda yo'qoladi).
