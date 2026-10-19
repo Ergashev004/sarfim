@@ -5,7 +5,7 @@ MENU_EXPENSE = "➕ Xarajat qo'shish"
 MENU_INCOME = "💰 Daromad"
 MENU_REPORTS = "📊 Hisobotlar"
 MENU_HISTORY = "🧾 Oxirgi yozuvlar"
-MENU_SETTINGS = "⚙️ Sozlamalar"
+MENU_CATEGORIES = "📂 Kategoriyalar"
 MENU_PLACEHOLDER = "Masalan: taksi 25000"
 
 # Hisobot davrlari

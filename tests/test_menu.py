@@ -13,11 +13,11 @@ from bot.handlers.categories import CategoryForm
 from bot.handlers.entry import ASK_INCOME, EditForm, EntryForm
 from bot.handlers.menu import (
     EXPENSE_HINT,
+    on_menu_categories,
     on_menu_expense,
     on_menu_history,
     on_menu_income,
     on_menu_reports,
-    on_menu_settings,
 )
 from bot.handlers.report import CHOOSE_PERIOD, ReportForm
 from bot.handlers.start import cmd_start
@@ -38,7 +38,7 @@ def test_menu_layout():
     assert rows == [
         [constants.MENU_EXPENSE],
         [constants.MENU_INCOME, constants.MENU_REPORTS],
-        [constants.MENU_HISTORY, constants.MENU_SETTINGS],
+        [constants.MENU_HISTORY, constants.MENU_CATEGORIES],
     ]
     assert main_menu().resize_keyboard
 
@@ -97,9 +97,9 @@ async def test_history_button(session, me, state):
     assert message.answers == [(EMPTY, None)]
 
 
-async def test_settings_button_opens_categories(session, me, state):
-    message = FakeMessage(constants.MENU_SETTINGS)
-    await on_menu_settings(message, state, session, me)
+async def test_categories_button(session, me, state):
+    message = FakeMessage(constants.MENU_CATEGORIES)
+    await on_menu_categories(message, state, session, me)
     [(text, _)] = message.answers
     assert "Oziq-ovqat" in text
 

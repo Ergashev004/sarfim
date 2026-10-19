@@ -11,7 +11,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.constants import MENU_EXPENSE, MENU_HISTORY, MENU_INCOME, MENU_REPORTS, MENU_SETTINGS
+from bot.constants import (
+    MENU_CATEGORIES,
+    MENU_EXPENSE,
+    MENU_HISTORY,
+    MENU_INCOME,
+    MENU_REPORTS,
+)
 from bot.db.models import User
 from bot.handlers.categories import CategoryForm, cmd_categories
 from bot.handlers.entry import ASK_INCOME, EditForm, EntryForm
@@ -69,10 +75,9 @@ async def on_menu_history(
     await cmd_last(message, session, db_user, tz)
 
 
-@router.message(F.text == MENU_SETTINGS)
-async def on_menu_settings(
+@router.message(F.text == MENU_CATEGORIES)
+async def on_menu_categories(
     message: Message, state: FSMContext, session: AsyncSession, db_user: User
 ) -> None:
-    # Hozircha sozlamalar = kategoriyalarni boshqarish (shaxsiy qo'shish/o'chirish)
     await _leave_input(state)
     await cmd_categories(message, session, db_user)

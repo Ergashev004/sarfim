@@ -1,12 +1,12 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from bot.constants import (
+    MENU_CATEGORIES,
     MENU_EXPENSE,
     MENU_HISTORY,
     MENU_INCOME,
     MENU_PLACEHOLDER,
     MENU_REPORTS,
-    MENU_SETTINGS,
 )
 
 
@@ -16,7 +16,7 @@ def main_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=MENU_EXPENSE)],
             [KeyboardButton(text=MENU_INCOME), KeyboardButton(text=MENU_REPORTS)],
-            [KeyboardButton(text=MENU_HISTORY), KeyboardButton(text=MENU_SETTINGS)],
+            [KeyboardButton(text=MENU_HISTORY), KeyboardButton(text=MENU_CATEGORIES)],
         ],
         resize_keyboard=True,
         is_persistent=True,

@@ -1,6 +1,6 @@
 from aiogram.filters import Command
 
-from bot.constants import MENU_SETTINGS
+from bot.constants import MENU_CATEGORIES
 from bot.db import repo
 from bot.db.models import Category
 from bot.handlers.categories import cmd_categories
@@ -76,6 +76,6 @@ def test_command_registered_and_mentioned_in_welcome():
         if isinstance(f.callback, Command)
     ]
     assert commands and "kategoriyalar" in commands[0].commands
-    # /start matni pastki menyuga yo'naltiradi; kategoriyalar — "Sozlamalar" tugmasida
+    # /start matni pastki menyuga yo'naltiradi, menyuda kategoriyalar tugmasi bor
     assert "kategoriyalar" in build_welcome_text("Akobir")
-    assert MENU_SETTINGS in [b.text for row in main_menu().keyboard for b in row]
+    assert MENU_CATEGORIES in [b.text for row in main_menu().keyboard for b in row]
