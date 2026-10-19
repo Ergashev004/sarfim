@@ -57,6 +57,25 @@ def test_validate_name(name, count, error_part):
         assert error_part in error
 
 
+@pytest.mark.parametrize("typed", ["transport", "TRANSPORT", "Transport"])
+def test_duplicate_of_standard_category_message(typed):
+    error = validate_category_name(typed, ["Oziq-ovqat", "Transport", "Sport"], 0)
+    assert error == (
+        "«🚕 Transport» — standart kategoriya, u allaqachon mavjud.\n"
+        "Xarajatlarni shunga yozavering yoki boshqa nom tanlang."
+    )
+
+
+def test_duplicate_of_own_category_message():
+    error = validate_category_name("sport", ["Transport", "Sport"], 1)
+    assert error == "Sizda «Sport» nomli kategoriya allaqachon mavjud.\nBoshqa nom yozing."
+
+
+def test_duplicate_message_escapes_own_name():
+    error = validate_category_name("a<b>", ["A<b>"], 1)
+    assert "«A&lt;b&gt;»" in error
+
+
 @pytest.mark.parametrize(
     ("name", "error_part"),
     [
@@ -119,6 +138,15 @@ async def test_bad_name_keeps_waiting(session, me, state):
     assert "allaqachon" in message.answers[0][0]
     assert await state.get_state() == CategoryForm.name.state
     assert await _custom(session, me) == []
+
+
+async def test_adding_standard_name_explains_it_exists(session, me, state):
+    await act("add", session, me, state)
+    message = await type_name("  oziq-ovqat ", session, me, state)
+    text, _ = message.answers[0]
+    assert text.startswith("«🛒 Oziq-ovqat» — standart kategoriya, u allaqachon mavjud.")
+    assert await _custom(session, me) == []
+    assert await state.get_state() == CategoryForm.name.state  # boshqa nomni kutamiz
 
 
 async def test_same_name_allowed_for_other_user(session, me, stranger, state):

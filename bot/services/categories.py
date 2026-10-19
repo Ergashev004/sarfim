@@ -77,9 +77,22 @@ def validate_category_name(name: str, existing: list[str], custom_count: int) ->
         return f"Nom {NAME_MIN_LEN}–{NAME_MAX_LEN} belgidan iborat bo'lsin."
     if name.startswith("/") or not any(ch.isalpha() for ch in name):
         return "Nomda kamida bitta harf bo'lsin. Masalan: <code>Sport</code>"
-    if name.casefold() in {e.casefold() for e in existing}:
-        return "Bunday kategoriya allaqachon bor."
+    taken = next((e for e in existing if e.casefold() == name.casefold()), None)
+    if taken is not None:
+        return duplicate_name_error(taken)
     return None
+
+
+def duplicate_name_error(taken: str) -> str:
+    """taken — bazadagi mavjud nom (foydalanuvchi yozgani emas): standartmi yoki o'zinikimi."""
+    emoji = dict(DEFAULT_CATEGORIES).get(taken)
+    if emoji is not None:
+        return (
+            f"«{category_label(taken, emoji)}» — standart kategoriya, u allaqachon mavjud.\n"
+            "Xarajatlarni shunga yozavering yoki boshqa nom tanlang."
+        )
+    name = escape(taken, quote=False)
+    return f"Sizda «{name}» nomli kategoriya allaqachon mavjud.\nBoshqa nom yozing."
 
 
 def validate_category_rename(name: str, existing: list[str], current: str) -> str | None:
