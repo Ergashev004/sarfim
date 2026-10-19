@@ -222,3 +222,6 @@ __marimo__/
 # Sarfim
 *.db
 *.sqlite3
+
+# macOS
+.DS_Store

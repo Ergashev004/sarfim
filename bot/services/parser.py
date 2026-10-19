@@ -201,7 +201,7 @@ def _cut(text: str, m: re.Match[str]) -> str:
     return normalize(text[: m.start()] + " " + text[m.end() :])
 
 
-def _resolve(day: int, month: int, year: int | None, today: date) -> date | None:
+def resolve_date(day: int, month: int, year: int | None, today: date) -> date | None:
     """Yil yozilmagan bo'lsa: bugundan keyin chiqsa, o'tgan yil deb olinadi (3-yanvarda 28.12)."""
     try:
         if year is not None:
@@ -212,6 +212,33 @@ def _resolve(day: int, month: int, year: int | None, today: date) -> date | None
         return candidate
     except ValueError:
         return None
+
+
+@dataclass(frozen=True)
+class DateMatch:
+    day: int
+    month: int  # tekshirilmagan: 1–12 dan tashqarida bo'lishi mumkin
+    year: int | None
+    start: int
+    end: int
+
+
+def _to_match(m: re.Match[str]) -> DateMatch:
+    month = _MONTHS[m.group("m")] if m.re is _NAMED_RE else int(m.group("m"))
+    year_str = m.groupdict().get("y")
+    year = None
+    if year_str:
+        year = int(year_str) + (2000 if len(year_str) == 2 else 0)
+    return DateMatch(int(m.group("d")), month, year, m.start(), m.end())
+
+
+def find_dates(text: str) -> list[DateMatch]:
+    """Normallashgan matndagi barcha aniq sanalar (nisbiy so'zlarsiz), chapdan o'ngga."""
+    found = [_to_match(m) for m in _NAMED_RE.finditer(text)]
+    for m in _NUMERIC_RE.finditer(text):
+        if all(m.end() <= d.start or m.start() >= d.end for d in found):
+            found.append(_to_match(m))
+    return sorted(found, key=lambda d: d.start)
 
 
 def _check_window(value: date, today: date) -> DateStatus:
@@ -234,18 +261,14 @@ def parse_date(text: str, today: date) -> DateResult:
     if not m:
         return DateResult(DateStatus.NOT_FOUND, today, text)
 
-    day = int(m.group("d"))
-    month = _MONTHS[m.group("m")] if m.re is _NAMED_RE else int(m.group("m"))
-    year_str = m.groupdict().get("y")
-    year = None
-    if year_str:
-        year = int(year_str) + (2000 if len(year_str) == 2 else 0)
+    found = _to_match(m)
+    day, month, year = found.day, found.month, found.year
 
     if not 1 <= month <= 12:
         # "15.30" sana emas (30-oy yo'q) - matnga tegmaymiz, summa parseri ko'radi
         return DateResult(DateStatus.NOT_FOUND, today, text)
 
-    value = _resolve(day, month, year, today)
+    value = resolve_date(day, month, year, today)
     rest = _cut(text, m)
     if value is None:
         return DateResult(DateStatus.INVALID, None, rest)

@@ -241,3 +241,78 @@ async def get_balance(session: AsyncSession, user_id: int) -> int | None:
     if income_count == 0:
         return None
     return int(income) - int(expense)
+
+
+# ---------------------------------------------------------------------------
+# Hisobotlar (davr chegaralari kiradi)
+# ---------------------------------------------------------------------------
+
+
+def _in_period(user_id: int, start: date, end: date):
+    return (Transaction.user_id == user_id, Transaction.occurred_on.between(start, end))
+
+
+async def period_totals(
+    session: AsyncSession, user_id: int, start: date, end: date
+) -> tuple[int, int]:
+    """(kirim, chiqim) davr bo'yicha."""
+    is_income = Transaction.type == TransactionType.INCOME
+    stmt = select(
+        func.coalesce(func.sum(case((is_income, Transaction.amount), else_=0)), 0),
+        func.coalesce(func.sum(case((is_income, 0), else_=Transaction.amount)), 0),
+    ).where(*_in_period(user_id, start, end))
+    income, expense = (await session.execute(stmt)).one()
+    return int(income), int(expense)
+
+
+async def expense_by_category(
+    session: AsyncSession, user_id: int, start: date, end: date
+) -> list[tuple[str, str | None, int, int]]:
+    """(nom, emoji, summa, soni) — summasi kattasidan, teng bo'lsa nomi bo'yicha."""
+    total = func.sum(Transaction.amount)
+    stmt = (
+        select(Category.name, Category.emoji, total, func.count())
+        .join(Category, Category.id == Transaction.category_id)
+        .where(*_in_period(user_id, start, end), Transaction.type == TransactionType.EXPENSE)
+        .group_by(Category.id)
+        .order_by(total.desc(), Category.name)
+    )
+    rows = await session.execute(stmt)
+    return [(name, emoji, int(amount), int(count)) for name, emoji, amount, count in rows]
+
+
+# SQLite: hafta boshi — dushanba ('weekday 1' — shu yoki keyingi dushanba)
+_BUCKET_SQL = {
+    "day": lambda col: func.date(col),
+    "week": lambda col: func.date(col, "-6 days", "weekday 1"),
+    "month": lambda col: func.date(col, "start of month"),
+}
+
+
+async def expense_by_bucket(
+    session: AsyncSession, user_id: int, start: date, end: date, granularity: str
+) -> list[tuple[date, int]]:
+    """Chiqim kun / hafta / oy bo'yicha; kalit — guruh boshlanish sanasi. Bo'sh guruhlar yo'q."""
+    bucket = _BUCKET_SQL[granularity](Transaction.occurred_on).label("bucket")
+    stmt = (
+        select(bucket, func.sum(Transaction.amount))
+        .where(*_in_period(user_id, start, end), Transaction.type == TransactionType.EXPENSE)
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    rows = await session.execute(stmt)
+    return [(date.fromisoformat(day), int(amount)) for day, amount in rows]
+
+
+async def last_transactions(
+    session: AsyncSession, user_id: int, limit: int = 10
+) -> list[tuple[Transaction, Category | None]]:
+    """Oxirgi kiritilgan yozuvlar (yangisi birinchi), kategoriyasi bilan."""
+    stmt = (
+        select(Transaction, Category)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .where(Transaction.user_id == user_id)
+        .order_by(Transaction.id.desc())
+        .limit(limit)
+    )
+    return [(tx, cat) for tx, cat in await session.execute(stmt)]
