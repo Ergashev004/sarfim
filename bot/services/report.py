@@ -357,13 +357,14 @@ def build_report_text(data: ReportData) -> str:
                 label = escape(category_label(c.name, c.emoji), quote=False)
                 lines.append(f"{label} — {format_amount(c.amount)} ({pct}%)")
 
-    if data.expense or data.prev_expense:
-        prev = previous(data.period)
-        change = format_change(change_percent(data.expense, data.prev_expense))
+    # O'tgan davrda chiqim bo'lmasa taqqoslab bo'lmaydi — qator chiqmaydi
+    if data.prev_expense:
+        change = change_percent(data.expense, data.prev_expense)
+        icon = "📈" if change > 0 else ("📉" if change < 0 else "➡️")
         lines += [
             "",
-            f"O'tgan davr ({format_period(prev)}): chiqim {format_amount(data.prev_expense)}, "
-            f"o'zgarish {change}",
+            f"{icon} Chiqim o'tgan davrga nisbatan: <b>{format_change(change)}</b>",
+            f"<i>{format_period(previous(data.period))}: {format_amount(data.prev_expense)}</i>",
         ]
     if data.balance is not None:
         lines.append(f"\n💰 Umumiy qoldiq: <b>{format_amount(data.balance)}</b>")

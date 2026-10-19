@@ -305,7 +305,8 @@ def test_report_text_full():
     assert "Farq:  <b>−3 000 000 so'm</b>" in text
     assert "🚗 Moshina — 6 000 000 so'm (75%)" in text
     assert "☕ Kafe/restoran — 2 000 000 so'm (25%)" in text
-    assert "O'tgan davr (1–16 sentabr 2026): chiqim 4 000 000 so'm, o'zgarish +100%" in text
+    assert "📈 Chiqim o'tgan davrga nisbatan: <b>+100%</b>" in text
+    assert "<i>1–16 sentabr 2026: 4 000 000 so'm</i>" in text
     assert "Umumiy qoldiq: <b>−1 000 000 so'm</b>" in text
 
 
@@ -313,13 +314,13 @@ def test_report_text_empty():
     text = build_report_text(_data())
     assert "Bu davrda yozuv yo'q." in text
     assert "Kirim" not in text
-    assert "O'tgan davr" not in text
+    assert "o'tgan davr" not in text
 
 
 def test_report_text_empty_but_previous_had_expense():
     text = build_report_text(_data(prev_expense=100_000))
     assert "Bu davrda yozuv yo'q." in text
-    assert "o'zgarish −100%" in text
+    assert "📉 Chiqim o'tgan davrga nisbatan: <b>−100%</b>" in text
 
 
 def test_report_text_income_only():
@@ -328,14 +329,14 @@ def test_report_text_income_only():
     assert "Kirim:  5 000 000 so'm" in text
     assert "Farq:  <b>5 000 000 so'm</b>" in text
     assert "kategoriyalar bo'yicha" not in text
-    assert "O'tgan davr" not in text
+    assert "o'tgan davr" not in text
 
 
-def test_report_text_previous_zero_shows_dash():
+def test_report_text_previous_zero_hides_comparison():
     text = build_report_text(
         _data(expense=10_000, categories=[CategoryTotal("Transport", "🚕", 10_000, 1)])
     )
-    assert "chiqim 0 so'm, o'zgarish —" in text
+    assert "o'tgan davr" not in text
     assert "Umumiy qoldiq" not in text  # kirim yo'q
 
 
