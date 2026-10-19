@@ -1,7 +1,14 @@
 from datetime import date
 
 from bot.db.models import TransactionType
-from bot.keyboards.entry import TxAction, card_keyboard, date_keyboard
+from bot.keyboards.entry import (
+    TxAction,
+    confirm_keyboard,
+    date_keyboard,
+    delete_confirm_keyboard,
+    edit_keyboard,
+    record_keyboard,
+)
 from bot.services.card import (
     date_choices,
     format_amount,
@@ -85,11 +92,29 @@ def _buttons(markup):
     return [b for row in markup.inline_keyboard for b in row]
 
 
-def test_card_keyboard_buttons():
-    expense = [b.text for b in _buttons(card_keyboard(1, with_category=True))]
-    income = [b.text for b in _buttons(card_keyboard(1, with_category=False))]
-    assert expense == ["↩️ Bekor qilish", "📂 Kategoriya", "📅 Sana"]
-    assert income == ["↩️ Bekor qilish", "📅 Sana"]
+def _actions(markup) -> list[tuple[str, str]]:
+    return [(b.text, TxAction.unpack(b.callback_data).action) for b in _buttons(markup)]
+
+
+def test_card_keyboards():
+    assert _actions(confirm_keyboard(1)) == [("✅ To'g'ri", "ok"), ("✏️ O'zgartirish", "cat")]
+    assert _actions(record_keyboard(1)) == [("✏️ Tahrirlash", "edit"), ("🗑 O'chirish", "del")]
+    assert _actions(delete_confirm_keyboard(1)) == [
+        ("Ha, o'chirish", "delok"),
+        ("Bekor qilish", "back"),
+    ]
+
+
+def test_edit_keyboard():
+    expense = _actions(edit_keyboard(1, with_category=True))
+    income = _actions(edit_keyboard(1, with_category=False))
+    assert expense == [
+        ("💵 Summa", "amount"),
+        ("📂 Kategoriya", "cat"),
+        ("📅 Sana", "date"),
+        ("⬅️ Orqaga", "back"),
+    ]
+    assert ("📂 Kategoriya", "cat") not in income
 
 
 def test_date_keyboard_layout():

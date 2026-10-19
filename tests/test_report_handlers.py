@@ -59,8 +59,9 @@ async def test_command_shows_period_buttons():
     await cmd_report(message)
     [(_, markup)] = message.answers
     buttons = [b for row in markup.inline_keyboard for b in row]
-    assert len(buttons) == len(PeriodKind)
-    assert ReportPeriod.unpack(buttons[-1].callback_data).kind is PeriodKind.CUSTOM
+    assert [b.text for b in buttons] == ["Bu oy", "Bu yil", "Boshqa davr"]
+    kinds = [ReportPeriod.unpack(b.callback_data).kind for b in buttons]
+    assert kinds == [PeriodKind.MONTH, PeriodKind.YEAR, PeriodKind.CUSTOM]
 
 
 async def test_month_report_photo_with_caption(session, me, state):
@@ -210,7 +211,7 @@ async def test_open_from_history_shows_card(session, me):
     await on_tx_action(callback, TxAction(action="open", tx_id=tx.id), session, me, TZ)
     [(text, markup)] = callback.message.answers
     assert "30 000 so'm" in text and "Transport" in text
-    assert len(markup.inline_keyboard[0]) == 3
+    assert [b.text for b in markup.inline_keyboard[0]] == ["✏️ Tahrirlash", "🗑 O'chirish"]
 
 
 async def test_open_foreign_record_refused(session, me, stranger):

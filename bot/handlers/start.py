@@ -14,9 +14,10 @@ def build_welcome_text(first_name: str | None) -> str:
     name = escape(first_name) if first_name else "do'stim"
     return (
         f"Salom, <b>{name}</b>! Men <b>Sarfim</b> — kirim-chiqimlaringizni hisoblab boraman.\n\n"
-        "Xarajat yozing:  <code>taksi 30000</code>\n"
-        "Kirim yozing:  <code>+5 mln oylik</code>\n"
-        "Hisobot, oxirgi yozuvlar va kategoriyalar — pastdagi menyuda."
+        "Xarajat yozing:  <code>taksi 25000</code>\n"
+        "Kirim yozing:  <code>+5 mln oylik</code>\n\n"
+        "Pastdagi menyuda — hisobotlar, oxirgi yozuvlar, sozlamalar va kategoriyalar.\n"
+        "Tugma bosish shart emas: istalgan payt shunchaki yozing."
     )
 
 

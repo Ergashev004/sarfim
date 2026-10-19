@@ -29,8 +29,10 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - `bot/db/` — SQLAlchemy 2 (async) + aiosqlite, migratsiyalar Alembic bilan.
   So'rovlar faqat `bot/db/repo.py` da; yozuvga tegadiganlari `user_id` bo'yicha ham filtrlanadi.
 - Yangi buyruq qo'shilsa `bot/commands.py: BOT_COMMANDS` ga ham yoziladi ("/" menyusi; `test_commands` tekshiradi).
-- Pastki menyu (`keyboards/menu.py`, /start yuboradi): tugma `handlers/menu.py` da mavjud handler'ni chaqiradi.
-  `menu.router` boshqa router'lardan oldin turadi — aks holda tugma matni xarajat yoki kategoriya nomi deb o'qiladi.
+- Tugmalar matni faqat `bot/constants.py` da. Pastki menyu (`keyboards/menu.py`, /start yuboradi) faqat yordamchi —
+  "taksi 25000" tugmasiz ishlaydi. Tugma `handlers/menu.py` da mavjud handler'ni chaqiradi; `menu.router`
+  boshqa router'lardan oldin turadi — aks holda tugma matni xarajat yoki kategoriya nomi deb o'qiladi.
+  Menyu tugmasi kutilayotgan kiritishni (oraliq, kategoriya nomi, daromad, yangi summa) bekor qiladi.
 - `bot/middlewares/db.py` — har update uchun sessiya + `db_user` (foydalanuvchi bazaga yoziladi).
 - Kiritish: `services/entry.py: parse_entry()` → `Entry` (READY / NEED_CATEGORY / NEED_AMOUNT / BAD_*).
   Kategoriyasi noaniq yozuv tanlanguncha bazaga yozilmaydi (FSM xotirada, restartda yo'qoladi).
@@ -67,7 +69,9 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
 - Sana: oxirgi 30 kun (30-kun ham kiradi). Kelajak va eski sana rad etiladi. Yilsiz sana kelajakka tushsa — o'tgan yil.
 - Avval sana parseri ishlaydi, keyin qolgan matndan summa olinadi.
 - Kirim: boshida `+` yoki "oylik", "maosh", "stipendiya", "keldi", "kirim" so'zlari. Kirimga kategoriya berilmaydi.
-- Xarajat kategoriyasi aniq bo'lsa darhol saqlanadi; kartada [Bekor qilish] [Kategoriya] [Sana].
+- Xarajat kategoriyasi aniq bo'lsa darhol saqlanadi; kartada [✅ To'g'ri] [✏️ O'zgartirish].
+  Tasdiqlangan / qo'lda tanlangan yozuv va kirim: [✏️ Tahrirlash (Summa, Kategoriya, Sana)] [🗑 O'chirish].
+  AI tanlagan kategoriya "To'g'ri" bilan tasdiqlansa — so'z o'rganiladi.
   Tartib: `user_keywords` → shaxsiy kategoriya nomi matnda → standart kalit so'zlar (lug'at) → AI → tugmalar.
   Nomning har bir so'zi matnda bo'lishi kerak ("Ikkinchi ish" ← "ikkinchi ishdagilar", "ikkinchi non" emas). Foydalanuvchi o'rgatgan so'z
   lug'atdan ustun; bitta so'z qayta tuzatilsa eng oxirgisi qoladi (upsert). Matnda bir nechta
@@ -76,7 +80,7 @@ Har bir o'zgarishdan keyin `pytest` va `ruff` yashil bo'lishi shart (CI ham shun
   Ko'ngilochar, Kafe/restoran, Sovg'alar, Boshqa. Foydalanuvchi ko'pi bilan 3 ta o'zinikini qo'sha oladi;
   o'chirilsa yozuvlari "Boshqa"ga o'tadi.
 - Umumiy qoldiq har kartada (kirim bo'lmasa ko'rsatilmaydi), manfiy bo'lishi mumkin. Hisobotda davr farqi.
-- Bekor qilish = yozuv bazadan butunlay o'chadi.
+- O'chirish faqat [Ha, o'chirish] tasdig'idan keyin; yozuv bazadan butunlay o'chadi.
 
 ## Ma'lumotlar modeli
 

@@ -83,7 +83,7 @@ def render_card(
         lines = ["✅ <b>Xarajat saqlandi</b>", f"💸 {format_amount(amount)}"]
         lines.append(f"📂 {escape(category or '—', quote=False)}")
         if ai_category:
-            lines.append("<i>🤖 Kategoriyani AI tanladi — xato bo'lsa, «Kategoriya»ni bosing</i>")
+            lines.append("<i>🤖 Kategoriyani AI tanladi — xato bo'lsa, «O'zgartirish»ni bosing</i>")
     lines.append(f"📅 {format_date(occurred_on, today)}")
     if rounded:
         lines.append("<i>Tiyin eng yaqin so'mga yaxlitlandi</i>")

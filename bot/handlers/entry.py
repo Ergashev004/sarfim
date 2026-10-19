@@ -20,9 +20,12 @@ from bot.keyboards.entry import (
     PendingCategory,
     TxAction,
     ai_confirm_keyboard,
-    card_keyboard,
     category_keyboard,
+    confirm_keyboard,
     date_keyboard,
+    delete_confirm_keyboard,
+    edit_keyboard,
+    record_keyboard,
 )
 from bot.services.card import (
     category_label,
@@ -44,13 +47,19 @@ from bot.services.entry import (
     with_amount,
     with_category,
 )
+from bot.services.parser import AmountStatus, parse_amount
 from bot.services.resolver import AiGateway, Busy, learn_keyword, resolve
 
 router = Router(name="entry")
 
 NOT_FOUND = "Yozuv topilmadi yoki allaqachon bekor qilingan."
 STALE = "Bu so'rov eskirgan — xarajatni qaytadan yozing."
-CANCELLED = "↩️ Bekor qilindi — yozuv o'chirildi."
+DELETED = "🗑 Yozuv o'chirildi."
+ASK_NEW_AMOUNT = "Yangi summani yozing, masalan: <code>30000</code>"
+ASK_INCOME = (
+    "Daromadni yozing, masalan: <code>5 mln oylik</code>\n"
+    "<i>Keyingi safar shunchaki <code>+5 mln oylik</code> deb yozsangiz ham bo'ladi.</i>"
+)
 AI_CONFIRMED = "✅ Tasdiqlandi"
 AI_REJECTED = "✏️ Tushunarli, summani o'zingiz yozing"
 
@@ -70,6 +79,11 @@ class EntryForm(StatesGroup):
     amount = State()
     category = State()
     confirm = State()  # AI topgan summa tasdiqlanishi kutilmoqda
+    income = State()  # "💰 Daromad" bosilgan: keyingi matn kirim
+
+
+class EditForm(StatesGroup):
+    amount = State()  # saqlangan yozuvning yangi summasi (tx_id — FSM data'da)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +102,12 @@ async def _category_buttons(session: AsyncSession, user_id: int) -> list[tuple[i
 
 
 async def build_card(
-    session: AsyncSession, tx: Transaction, today: date, *, rounded: bool = False
+    session: AsyncSession,
+    tx: Transaction,
+    today: date,
+    *,
+    rounded: bool = False,
+    confirm: bool = False,  # yangi xarajat: [To'g'ri] [O'zgartirish], aks holda yozuv tugmalari
 ) -> tuple[str, InlineKeyboardMarkup]:
     label = None
     if tx.category_id is not None:
@@ -102,9 +121,9 @@ async def build_card(
         category=label,
         balance=await repo.get_balance(session, tx.user_id),
         rounded=rounded,
-        ai_category=tx.source is TransactionSource.AI and tx.type is TransactionType.EXPENSE,
+        ai_category=confirm and tx.source is TransactionSource.AI,
     )
-    markup = card_keyboard(tx.id, with_category=tx.type is TransactionType.EXPENSE)
+    markup = confirm_keyboard(tx.id) if confirm else record_keyboard(tx.id)
     return text, markup
 
 
@@ -198,7 +217,9 @@ async def process_entry(
                     )
                     return
             tx = await _save(session, db_user, entry, category)
-            text, markup = await build_card(session, tx, today, rounded=entry.rounded)
+            text, markup = await build_card(
+                session, tx, today, rounded=entry.rounded, confirm=category is not None
+            )
             await message.answer(text, reply_markup=markup)
 
 
@@ -229,6 +250,54 @@ async def on_amount_reply(
         await message.answer(entry.reason)  # holat saqlanadi, summani qayta kutamiz
         return
     await process_entry(message, entry, state, session, db_user, today, ai)
+
+
+@router.message(EntryForm.income, F.text, _not_command)
+async def on_income(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: User,
+    tz: ZoneInfo,
+    ai: AiGateway | None = None,
+) -> None:
+    await state.clear()
+    today = today_in(tz)
+    text = message.text.strip()
+    entry = parse_entry(text if text.startswith("+") else f"+{text}", today)
+    await process_entry(message, entry, state, session, db_user, today, ai)
+
+
+@router.message(EditForm.amount, F.text, _not_command)
+async def on_edit_amount(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: User,
+    tz: ZoneInfo,
+    ai: AiGateway | None = None,
+) -> None:
+    today = today_in(tz)
+    result = parse_amount(message.text)
+    if result.status is AmountStatus.INVALID:
+        await message.answer(result.reason)  # summani qayta kutamiz
+        return
+    tx_id = (await state.get_data()).get("tx_id")
+    await state.clear()
+    if result.status is not AmountStatus.OK:
+        # Bitta summa emas — yangi yozuv sifatida qabul qilamiz
+        await process_entry(
+            message, parse_entry(message.text, today), state, session, db_user, today, ai
+        )
+        return
+    tx = await repo.get_own_transaction(session, tx_id or 0, db_user.id)
+    if tx is None:
+        await message.answer(NOT_FOUND)
+        return
+    tx.amount = result.value
+    await session.commit()
+    text, markup = await build_card(session, tx, today, rounded=result.rounded)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.message(F.text, _not_command)
@@ -309,19 +378,20 @@ async def on_tx_action(
     session: AsyncSession,
     db_user: User,
     tz: ZoneInfo,
+    state: FSMContext | None = None,
 ) -> None:
     today = today_in(tz)
     action = callback_data.action
 
-    if action == "cancel":
+    if action == "delok":
         # DELETE ... WHERE id AND user_id: ikkinchi bosish yoki begona yozuv — shunchaki 0 qator
         deleted = await repo.delete_own_transaction(session, callback_data.tx_id, db_user.id)
         await session.commit()
         if not deleted:
             await callback.answer(NOT_FOUND, show_alert=True)
             return
-        await _edit(callback, CANCELLED, None)
-        await callback.answer("Bekor qilindi")
+        await _edit(callback, DELETED, None)
+        await callback.answer("O'chirildi")
         return
 
     tx = await repo.get_own_transaction(session, callback_data.tx_id, db_user.id)
@@ -331,16 +401,33 @@ async def on_tx_action(
     is_expense = tx.type is TransactionType.EXPENSE
 
     match action:
+        case "ok":
+            learned = None
+            if tx.source is TransactionSource.AI and is_expense:
+                # AI topgan kategoriya tasdiqlandi — keyingi safar AI'siz
+                learned = await learn_keyword(session, db_user.id, tx.note, tx.category_id, today)
+                await session.commit()
+            await _edit(callback, *await build_card(session, tx, today))
+            await callback.answer(f"«{learned}» eslab qolindi" if learned else "✅")
+            return
+        case "edit":
+            await _edit_markup(callback, edit_keyboard(tx.id, with_category=is_expense))
+        case "del" | "cancel":  # cancel — eski kartalardagi "Bekor qilish" tugmasi
+            await _edit_markup(callback, delete_confirm_keyboard(tx.id))
+        case "back":
+            await _edit_markup(callback, record_keyboard(tx.id))
+        case "open":  # /oxirgi ro'yxatidan: karta yangi xabar bo'lib chiqadi
+            text, markup = await build_card(session, tx, today)
+            await callback.message.answer(text, reply_markup=markup)
+        case "amount":
+            await state.set_state(EditForm.amount)
+            await state.update_data(tx_id=tx.id)
+            await callback.message.answer(ASK_NEW_AMOUNT)
         case "cat" if is_expense:
             buttons = await _category_buttons(session, db_user.id)
             await _edit_markup(callback, category_keyboard(buttons, tx.id))
         case "date":
             await _edit_markup(callback, date_keyboard(tx.id, date_choices(today)))
-        case "back":
-            await _edit_markup(callback, card_keyboard(tx.id, with_category=is_expense))
-        case "open":  # /oxirgi ro'yxatidan: karta yangi xabar bo'lib chiqadi
-            text, markup = await build_card(session, tx, today)
-            await callback.message.answer(text, reply_markup=markup)
         case "setcat" if is_expense:
             category = await repo.get_category(session, db_user.id, callback_data.value)
             if category is None:

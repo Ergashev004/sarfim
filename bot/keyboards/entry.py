@@ -4,13 +4,32 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.constants import (
+    AI_NO,
+    AI_YES,
+    BACK,
+    CATEGORY_CHANGE,
+    CATEGORY_OK,
+    DELETE_NO,
+    DELETE_YES,
+    EDIT_AMOUNT,
+    EDIT_CATEGORY,
+    EDIT_DATE,
+    RECORD_DELETE,
+    RECORD_EDIT,
+)
 from bot.services.card import RELATIVE_DAYS
 
 
 class TxAction(CallbackData, prefix="tx"):
-    """Saqlangan yozuv ustidagi amal. tx_id ga ishonilmaydi — egasi bazada tekshiriladi."""
+    """Saqlangan yozuv ustidagi amal. tx_id ga ishonilmaydi — egasi bazada tekshiriladi.
 
-    action: str  # cancel | cat | date | setcat | setdate | back | open
+    ok — kategoriya to'g'ri; cat/setcat — kategoriya; edit — tahrirlash menyusi;
+    amount — summa; date/setdate — sana; del/delok — o'chirish; back — yozuv tugmalari;
+    open — /oxirgi ro'yxatidan karta.
+    """
+
+    action: str
     tx_id: int
     value: int = 0  # setcat: category_id, setdate: date.toordinal()
 
@@ -27,26 +46,43 @@ class AiConfirm(CallbackData, prefix="ai"):
     ok: bool
 
 
+def _tx(text: str, action: str, tx_id: int, value: int = 0) -> InlineKeyboardButton:
+    data = TxAction(action=action, tx_id=tx_id, value=value)
+    return InlineKeyboardButton(text=text, callback_data=data.pack())
+
+
 def ai_confirm_keyboard() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="✅ Ha, saqlash", callback_data=AiConfirm(ok=True))
-    b.button(text="✏️ Summani o'zim yozaman", callback_data=AiConfirm(ok=False))
+    b.button(text=AI_YES, callback_data=AiConfirm(ok=True))
+    b.button(text=AI_NO, callback_data=AiConfirm(ok=False))
     b.adjust(1)
     return b.as_markup()
 
 
-def card_keyboard(tx_id: int, *, with_category: bool) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="↩️ Bekor qilish", callback_data=TxAction(action="cancel", tx_id=tx_id))
+def confirm_keyboard(tx_id: int) -> InlineKeyboardMarkup:
+    """Yangi xarajat: bot tanlagan kategoriya to'g'rimi."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_tx(CATEGORY_OK, "ok", tx_id), _tx(CATEGORY_CHANGE, "cat", tx_id)]]
+    )
+
+
+def record_keyboard(tx_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_tx(RECORD_EDIT, "edit", tx_id), _tx(RECORD_DELETE, "del", tx_id)]]
+    )
+
+
+def edit_keyboard(tx_id: int, *, with_category: bool) -> InlineKeyboardMarkup:
+    row = [_tx(EDIT_AMOUNT, "amount", tx_id)]
     if with_category:
-        b.button(text="📂 Kategoriya", callback_data=TxAction(action="cat", tx_id=tx_id))
-    b.button(text="📅 Sana", callback_data=TxAction(action="date", tx_id=tx_id))
-    return b.as_markup()
+        row.append(_tx(EDIT_CATEGORY, "cat", tx_id))
+    row.append(_tx(EDIT_DATE, "date", tx_id))
+    return InlineKeyboardMarkup(inline_keyboard=[row, [_tx(BACK, "back", tx_id)]])
 
 
-def _back(tx_id: int) -> InlineKeyboardButton:
-    return InlineKeyboardButton(
-        text="⬅️ Orqaga", callback_data=TxAction(action="back", tx_id=tx_id).pack()
+def delete_confirm_keyboard(tx_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_tx(DELETE_YES, "delok", tx_id), _tx(DELETE_NO, "back", tx_id)]]
     )
 
 
@@ -63,24 +99,22 @@ def category_keyboard(
         b.button(text=label, callback_data=data)
     b.adjust(2)
     if tx_id is not None:
-        b.row(_back(tx_id))
+        b.row(_tx(BACK, "back", tx_id))
     return b.as_markup()
 
 
 def date_keyboard(tx_id: int, dates: list[date]) -> InlineKeyboardMarkup:
     """Birinchi qator: Bugun / Kecha / O'tgan kuni, pastida qolgan kunlar 4 tadan."""
     b = InlineKeyboardBuilder()
-
-    def button(value: date, text: str) -> InlineKeyboardButton:
-        data = TxAction(action="setdate", tx_id=tx_id, value=value.toordinal())
-        return InlineKeyboardButton(text=text, callback_data=data.pack())
-
-    top = [button(d, RELATIVE_DAYS[i].capitalize()) for i, d in enumerate(dates[:3])]
+    top = [
+        _tx(RELATIVE_DAYS[i].capitalize(), "setdate", tx_id, d.toordinal())
+        for i, d in enumerate(dates[:3])
+    ]
     b.row(*top)
-    rest = [button(d, d.strftime("%d.%m")) for d in dates[3:]]
+    rest = [_tx(d.strftime("%d.%m"), "setdate", tx_id, d.toordinal()) for d in dates[3:]]
     for i in range(0, len(rest), 4):
         b.row(*rest[i : i + 4])
-    b.row(_back(tx_id))
+    b.row(_tx(BACK, "back", tx_id))
     return b.as_markup()
 
 

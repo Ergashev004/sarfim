@@ -10,11 +10,15 @@ from sqlalchemy import func, select
 from bot.db import repo
 from bot.db.models import Category, Transaction, TransactionSource, TransactionType, User
 from bot.handlers.entry import (
-    CANCELLED,
+    ASK_NEW_AMOUNT,
+    DELETED,
     NOT_FOUND,
     STALE,
+    EditForm,
     EntryForm,
     on_amount_reply,
+    on_edit_amount,
+    on_income,
     on_pending_category,
     on_text,
     on_tx_action,
@@ -45,8 +49,12 @@ async def press(data, session, user, state=None) -> FakeCallback:
         state = state or _state(user.telegram_id)
         await on_pending_category(callback, data, state, session, user, TZ)
     else:
-        await on_tx_action(callback, data, session, user, TZ)
+        await on_tx_action(callback, data, session, user, TZ, state)
     return callback
+
+
+def _actions(markup) -> list[str]:
+    return [TxAction.unpack(b.callback_data).action for row in markup.inline_keyboard for b in row]
 
 
 async def _transactions(session) -> list[Transaction]:
@@ -76,7 +84,7 @@ async def test_expense_saved_and_card_shown(session, me, state):
     [(text, markup)] = message.answers
     assert "30 000 so'm" in text and "Transport" in text
     assert "qoldiq" not in text  # kirim yo'q
-    assert len(markup.inline_keyboard[0]) == 3
+    assert _actions(markup) == ["ok", "cat"]  # [To'g'ri] [O'zgartirish]
 
 
 async def test_balance_shown_after_income(session, me, state):
@@ -89,7 +97,7 @@ async def test_income_card_has_no_category_button(session, me, state):
     message = await send("+5 mln oylik", state, session, me)
     [tx] = await _transactions(session)
     assert tx.category_id is None
-    assert len(message.answers[0][1].inline_keyboard[0]) == 2
+    assert _actions(message.answers[0][1]) == ["edit", "del"]  # tasdiqlanadigan kategoriya yo'q
 
 
 async def test_bad_date_rejected(session, me, state):
@@ -173,7 +181,9 @@ async def test_unknown_category_not_saved_until_chosen(session, me, state):
     callback = await press(PendingCategory(category_id=transport), session, me, state)
     [tx] = await _transactions(session)
     assert tx.category_id == transport
-    assert "Transport" in callback.message.edits[0][0]
+    text, markup = callback.message.edits[0]
+    assert "Transport" in text
+    assert _actions(markup) == ["edit", "del"]  # o'zi tanladi — tasdiq shart emas
 
 
 async def test_pending_category_double_press_saves_once(session, me, state):
@@ -205,7 +215,7 @@ async def test_pending_foreign_custom_category_rejected(session, me, stranger, s
 
 
 # ---------------------------------------------------------------------------
-# Bekor qilish: egasi va ikki marta bosish
+# O'chirish: tasdiq, egasi va ikki marta bosish
 # ---------------------------------------------------------------------------
 
 
@@ -214,39 +224,70 @@ async def _saved_tx(session, me, state, text="taksi 30000") -> Transaction:
     return (await _transactions(session))[-1]
 
 
-async def test_cancel_deletes_record(session, me, state):
+@pytest.mark.parametrize("action", ["del", "cancel"])  # cancel — eski kartalardagi tugma
+async def test_delete_asks_confirmation_first(session, me, state, action):
     tx = await _saved_tx(session, me, state)
-    callback = await press(TxAction(action="cancel", tx_id=tx.id), session, me)
+    callback = await press(TxAction(action=action, tx_id=tx.id), session, me)
+    assert len(await _transactions(session)) == 1
+    assert _actions(callback.message.markups[0]) == ["delok", "back"]
+
+
+async def test_delete_confirmed(session, me, state):
+    tx = await _saved_tx(session, me, state)
+    callback = await press(TxAction(action="delok", tx_id=tx.id), session, me)
     assert await _transactions(session) == []
-    assert callback.message.edits == [(CANCELLED, None)]
+    assert callback.message.edits == [(DELETED, None)]
 
 
-async def test_cancel_twice_no_error(session, me, state):
+async def test_delete_cancelled_keeps_record(session, me, state):
     tx = await _saved_tx(session, me, state)
-    data = TxAction(action="cancel", tx_id=tx.id)
+    callback = await press(TxAction(action="back", tx_id=tx.id), session, me)
+    assert len(await _transactions(session)) == 1
+    assert _actions(callback.message.markups[0]) == ["edit", "del"]
+
+
+async def test_delete_twice_no_error(session, me, state):
+    tx = await _saved_tx(session, me, state)
+    data = TxAction(action="delok", tx_id=tx.id)
     await press(data, session, me)
     second = await press(data, session, me)
     assert second.alerts == [NOT_FOUND]
     assert second.message.edits == []
 
 
-async def test_cancel_by_stranger_rejected(session, me, stranger, state):
+async def test_delete_by_stranger_rejected(session, me, stranger, state):
     tx = await _saved_tx(session, me, state)
-    callback = await press(TxAction(action="cancel", tx_id=tx.id), session, stranger)
+    callback = await press(TxAction(action="delok", tx_id=tx.id), session, stranger)
     assert callback.alerts == [NOT_FOUND]
     assert len(await _transactions(session)) == 1
 
 
 @pytest.mark.parametrize(
     ("action", "value"),
-    [("cat", 0), ("date", 0), ("back", 0), ("setcat", 1), ("setdate", TODAY.toordinal() - 1)],
+    [
+        ("ok", 0),
+        ("edit", 0),
+        ("del", 0),
+        ("amount", 0),
+        ("open", 0),
+        ("cat", 0),
+        ("date", 0),
+        ("back", 0),
+        ("setcat", 1),
+        ("setdate", TODAY.toordinal() - 1),
+    ],
 )
 async def test_stranger_cannot_touch_record(session, me, stranger, state, action, value):
     tx = await _saved_tx(session, me, state)
     before = (tx.category_id, tx.occurred_on)
-    callback = await press(TxAction(action=action, tx_id=tx.id, value=value), session, stranger)
+    their_state = make_state(stranger.telegram_id)
+    callback = await press(
+        TxAction(action=action, tx_id=tx.id, value=value), session, stranger, their_state
+    )
     assert callback.alerts == [NOT_FOUND]
     assert callback.message.edits == [] and callback.message.markups == []
+    assert callback.message.answers == []
+    assert await their_state.get_state() is None
     [after] = await _transactions(session)
     assert (after.category_id, after.occurred_on) == before
 
@@ -324,6 +365,110 @@ async def test_change_date_outside_window_refused(session, me, state, value):
     assert "tanlab bo'lmaydi" in callback.alerts[0]
     [after] = await _transactions(session)
     assert after.occurred_on == TODAY
+
+
+# ---------------------------------------------------------------------------
+# Kategoriyani tasdiqlash, tahrirlash menyusi, summa
+# ---------------------------------------------------------------------------
+
+
+async def test_category_ok_switches_to_record_buttons(session, me, state):
+    tx = await _saved_tx(session, me, state)
+    callback = await press(TxAction(action="ok", tx_id=tx.id), session, me)
+    text, markup = callback.message.edits[0]
+    assert "Transport" in text
+    assert _actions(markup) == ["edit", "del"]
+    [after] = await _transactions(session)
+    assert after.source is TransactionSource.KEYWORD  # lug'atdan — o'rganish shart emas
+    assert await repo.find_user_keyword_categories(session, me.id, ["taksi"]) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("taksi 30000", ["amount", "cat", "date", "back"]),
+        ("+5 mln oylik", ["amount", "date", "back"]),
+    ],
+)
+async def test_edit_menu(session, me, state, text, expected):
+    tx = await _saved_tx(session, me, state, text)
+    callback = await press(TxAction(action="edit", tx_id=tx.id), session, me)
+    assert _actions(callback.message.markups[0]) == expected
+
+
+async def _ask_amount(session, me, state) -> Transaction:
+    tx = await _saved_tx(session, me, state)
+    callback = await press(TxAction(action="amount", tx_id=tx.id), session, me, state)
+    assert callback.message.answers == [(ASK_NEW_AMOUNT, None)]
+    assert await state.get_state() == EditForm.amount.state
+    return tx
+
+
+async def _reply_amount(text, state, session, me) -> FakeMessage:
+    message = FakeMessage(text)
+    await on_edit_amount(message, state, session, me, TZ)
+    return message
+
+
+async def test_edit_amount(session, me, state):
+    await _ask_amount(session, me, state)
+    message = await _reply_amount("45 ming", state, session, me)
+    [after] = await _transactions(session)
+    assert after.amount == 45_000
+    assert await state.get_state() is None
+    [(text, markup)] = message.answers
+    assert "45 000 so'm" in text and _actions(markup) == ["edit", "del"]
+
+
+async def test_edit_amount_invalid_keeps_waiting(session, me, state):
+    await _ask_amount(session, me, state)
+    message = await _reply_amount("0", state, session, me)
+    assert "0 dan katta" in message.answers[0][0]
+    assert await state.get_state() == EditForm.amount.state
+    [after] = await _transactions(session)
+    assert after.amount == 30_000
+
+
+async def test_edit_amount_non_amount_is_new_entry(session, me, state):
+    await _ask_amount(session, me, state)
+    await _reply_amount("2 ta non 5000", state, session, me)  # ikki raqam — yangi yozuv
+    [after] = await _transactions(session)
+    assert after.amount == 30_000
+    assert await state.get_state() == EntryForm.amount.state  # yangi yozuv summasi so'raldi
+
+
+async def test_edit_amount_record_deleted_meanwhile(session, me, state):
+    tx = await _ask_amount(session, me, state)
+    await press(TxAction(action="delok", tx_id=tx.id), session, me)
+    message = await _reply_amount("45000", state, session, me)
+    assert message.answers == [(NOT_FOUND, None)]
+    assert await state.get_state() is None
+
+
+# ---------------------------------------------------------------------------
+# "💰 Daromad" bosilgandan keyin: + shart emas
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["5 mln oylik", "+5 mln oylik", "5000000"])
+async def test_income_after_menu_button(session, me, state, text):
+    await state.set_state(EntryForm.income)
+    message = FakeMessage(text)
+    await on_income(message, state, session, me, TZ)
+    [tx] = await _transactions(session)
+    assert (tx.type, tx.amount) == (TransactionType.INCOME, 5_000_000)
+    assert "Kirim saqlandi" in message.answers[0][0]
+    assert await state.get_state() is None
+
+
+async def test_income_without_amount_asks_amount(session, me, state):
+    await state.set_state(EntryForm.income)
+    await on_income(FakeMessage("oylik"), state, session, me, TZ)
+    assert await state.get_state() == EntryForm.amount.state
+    message = await send("5 mln", state, session, me)
+    [tx] = await _transactions(session)
+    assert tx.type is TransactionType.INCOME
+    assert "Kirim saqlandi" in message.answers[0][0]
 
 
 # ---------------------------------------------------------------------------

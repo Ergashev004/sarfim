@@ -100,6 +100,21 @@ async def test_card_correction_is_learned(session, me, state):
     assert second.category_id == kiyim
 
 
+async def test_confirming_ai_category_is_learned(session, me, state):
+    ai, _ = gateway({"category": "Transport", "amount": 0})
+    await send("velosiped 300000", state, session, me, ai)
+    [tx] = await _transactions(session)
+    callback = await press(TxAction(action="ok", tx_id=tx.id), session, me)
+    assert callback.alerts == ["«velosiped» eslab qolindi"]
+    assert "AI" not in callback.message.edits[0][0]
+
+    ai, client = gateway()
+    await send("velosiped 100000", state, session, me, ai)
+    assert client.calls == []  # endi AI'siz
+    _, second = await _transactions(session)
+    assert second.category_id == await _category_id(session, "Transport")
+
+
 async def test_learned_word_is_private(session, me, stranger, state):
     await send("velosiped 300000", state, session, me)
     await press(
